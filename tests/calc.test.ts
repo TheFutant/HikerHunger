@@ -30,6 +30,7 @@ describe('calculateFoodMetrics', () => {
     expect(metrics.totalCalories).toBe(870);
     expect(metrics.packagingWasteG).toBe(20);
     expect(metrics.totalMealWaterMl).toBe(650);
+    expect(metrics.caloriesPerOunce).toBeCloseTo(112.11, 2);
     expect(metrics.caloriesPerOunce).toBeCloseTo(112.17, 2);
   });
 });
