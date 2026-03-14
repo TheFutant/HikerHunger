@@ -2,6 +2,7 @@
 
 import { MapContainer, Marker, Polyline, TileLayer, Popup } from 'react-leaflet';
 import type { Trip } from '@/lib/types';
+import 'leaflet/dist/leaflet.css';
 
 export default function MapView({ trip }: { trip: Trip | null }) {
   if (!trip) {
