@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="HikerHunger Sample" xmlns="http://www.topografix.com/GPX/1/1">
+  <wpt lat="37.8651" lon="-119.5383">
+    <name>Trailhead</name>
+    <desc>Start point</desc>
+  </wpt>
+  <wpt lat="37.8742" lon="-119.5054">
+    <name>Camp 1</name>
+    <desc>Potential campsite</desc>
+  </wpt>
+  <trk>
+    <name>Day 1 Route</name>
+    <trkseg>
+      <trkpt lat="37.8651" lon="-119.5383"><ele>1220</ele></trkpt>
+      <trkpt lat="37.8680" lon="-119.5315"><ele>1280</ele></trkpt>
+      <trkpt lat="37.8710" lon="-119.5203"><ele>1405</ele></trkpt>
+      <trkpt lat="37.8742" lon="-119.5054"><ele>1540</ele></trkpt>
+    </trkseg>
+  </trk>
+  <trk>
+    <name>Day 2 Route</name>
+    <trkseg>
+      <trkpt lat="37.8742" lon="-119.5054"><ele>1540</ele></trkpt>
+      <trkpt lat="37.8721" lon="-119.5130"><ele>1460</ele></trkpt>
+      <trkpt lat="37.8695" lon="-119.5268"><ele>1320</ele></trkpt>
+      <trkpt lat="37.8651" lon="-119.5383"><ele>1220</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>
