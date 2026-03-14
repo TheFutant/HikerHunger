@@ -1,0 +1,49 @@
+{
+  "id": "sample-trip-1",
+  "name": "Yosemite Overnight",
+  "location": "Yosemite Valley",
+  "startDate": "2026-05-02",
+  "endDate": "2026-05-03",
+  "notes": "Test trip with two short routes and camp waypoint.",
+  "routes": [
+    {
+      "day": 1,
+      "points": [
+        { "lat": 37.8651, "lon": -119.5383, "ele": 1220 },
+        { "lat": 37.8742, "lon": -119.5054, "ele": 1540 }
+      ],
+      "meta": {
+        "name": "Day 1 Route",
+        "distanceKm": 3.1,
+        "pointCount": 2,
+        "bounds": [37.8651, -119.5383, 37.8742, -119.5054],
+        "elevationGainM": 320
+      }
+    }
+  ],
+  "waypoints": [
+    {
+      "id": "wpt-1",
+      "name": "Trailhead",
+      "type": "trailhead",
+      "lat": 37.8651,
+      "lon": -119.5383,
+      "notes": "Parking near start"
+    }
+  ],
+  "foodItems": [
+    {
+      "id": "food-1",
+      "name": "Instant oats",
+      "category": "breakfast",
+      "weight_g": 90,
+      "calories": 360,
+      "packaging_weight_g": 10,
+      "water_ml_needed": 250,
+      "satisfaction_1_5": 4,
+      "notes": "Add nuts"
+    }
+  ],
+  "createdAt": "2026-01-01T08:00:00.000Z",
+  "updatedAt": "2026-01-01T08:00:00.000Z"
+}
