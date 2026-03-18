@@ -6,11 +6,13 @@ import { calculateFoodMetrics } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip } from '@/lib/db';
-import type { FoodItem, Trip, Waypoint } from '@/lib/types';
+import type { FoodItem, Trip, Waypoint, WaypointType } from '@/lib/types';
 
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
 
 type Tab = 'trips' | 'map' | 'food' | 'settings';
+
+const WAYPOINT_TYPES: WaypointType[] = ['trailhead', 'water', 'camp', 'bailout'];
 
 const emptyTrip = (): Trip => {
   const now = new Date().toISOString();
@@ -35,6 +37,10 @@ export default function HomePage() {
   const [selectedTripId, setSelectedTripId] = useState<string>('');
   const [draft, setDraft] = useState<Trip>(emptyTrip());
   const [isOnline, setIsOnline] = useState(true);
+  const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
+  const [foodDraft, setFoodDraft] = useState<FoodItem | null>(null);
+  const [editingWaypointId, setEditingWaypointId] = useState<string | null>(null);
+  const [waypointDraft, setWaypointDraft] = useState<Waypoint | null>(null);
 
   useEffect(() => {
     listTrips().then((items) => {
@@ -91,7 +97,26 @@ export default function HomePage() {
       satisfaction_1_5: 3,
       notes: '',
     };
-    await persist({ ...selectedTrip, foodItems: [...selectedTrip.foodItems, item] });
+    const updated = { ...selectedTrip, foodItems: [...selectedTrip.foodItems, item] };
+    await persist(updated);
+    setEditingFoodId(item.id);
+    setFoodDraft(item);
+  }
+
+  async function saveFoodItem() {
+    if (!selectedTrip || !foodDraft) return;
+    const foodItems = selectedTrip.foodItems.map((f) => (f.id === foodDraft.id ? foodDraft : f));
+    await persist({ ...selectedTrip, foodItems });
+    setEditingFoodId(null);
+    setFoodDraft(null);
+  }
+
+  async function deleteFoodItem(id: string) {
+    if (!selectedTrip) return;
+    const foodItems = selectedTrip.foodItems.filter((f) => f.id !== id);
+    await persist({ ...selectedTrip, foodItems });
+    setEditingFoodId(null);
+    setFoodDraft(null);
   }
 
   async function addWaypoint() {
@@ -104,7 +129,26 @@ export default function HomePage() {
       lon: -122.42,
       notes: '',
     };
-    await persist({ ...selectedTrip, waypoints: [...selectedTrip.waypoints, wp] });
+    const updated = { ...selectedTrip, waypoints: [...selectedTrip.waypoints, wp] };
+    await persist(updated);
+    setEditingWaypointId(wp.id);
+    setWaypointDraft(wp);
+  }
+
+  async function saveWaypoint() {
+    if (!selectedTrip || !waypointDraft) return;
+    const waypoints = selectedTrip.waypoints.map((w) => (w.id === waypointDraft.id ? waypointDraft : w));
+    await persist({ ...selectedTrip, waypoints });
+    setEditingWaypointId(null);
+    setWaypointDraft(null);
+  }
+
+  async function deleteWaypoint(id: string) {
+    if (!selectedTrip) return;
+    const waypoints = selectedTrip.waypoints.filter((w) => w.id !== id);
+    await persist({ ...selectedTrip, waypoints });
+    setEditingWaypointId(null);
+    setWaypointDraft(null);
   }
 
   async function onImportGpx(file: File) {
@@ -241,9 +285,84 @@ export default function HomePage() {
             />
           </label>
 
-          <button className="w-full" onClick={addWaypoint} disabled={!selectedTrip}>
-            Add waypoint
-          </button>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-zinc-300">Waypoints</span>
+              <button className="px-3 py-1 text-xs" onClick={addWaypoint} disabled={!selectedTrip}>
+                + Add
+              </button>
+            </div>
+            {selectedTrip?.waypoints.map((wp) =>
+              editingWaypointId === wp.id && waypointDraft ? (
+                <div key={wp.id} className="space-y-2 rounded-lg border border-indigo-600 p-3 text-sm">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label>
+                      Name
+                      <input
+                        className="mt-1 w-full"
+                        value={waypointDraft.name}
+                        onChange={(e) => setWaypointDraft({ ...waypointDraft, name: e.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Type
+                      <select
+                        className="mt-1 w-full"
+                        value={waypointDraft.type}
+                        onChange={(e) => setWaypointDraft({ ...waypointDraft, type: e.target.value as WaypointType })}
+                      >
+                        {WAYPOINT_TYPES.map((t) => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      Lat
+                      <input
+                        type="number"
+                        step="any"
+                        className="mt-1 w-full"
+                        value={waypointDraft.lat}
+                        onChange={(e) => setWaypointDraft({ ...waypointDraft, lat: Number(e.target.value) })}
+                      />
+                    </label>
+                    <label>
+                      Lon
+                      <input
+                        type="number"
+                        step="any"
+                        className="mt-1 w-full"
+                        value={waypointDraft.lon}
+                        onChange={(e) => setWaypointDraft({ ...waypointDraft, lon: Number(e.target.value) })}
+                      />
+                    </label>
+                  </div>
+                  <label>
+                    Notes
+                    <input
+                      className="mt-1 w-full"
+                      value={waypointDraft.notes ?? ''}
+                      onChange={(e) => setWaypointDraft({ ...waypointDraft, notes: e.target.value })}
+                    />
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <button className="bg-emerald-700 text-xs" onClick={saveWaypoint}>Save</button>
+                    <button className="text-xs" onClick={() => { setEditingWaypointId(null); setWaypointDraft(null); }}>Cancel</button>
+                    <button className="bg-red-800 text-xs" onClick={() => deleteWaypoint(wp.id)}>Delete</button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  key={wp.id}
+                  className="w-full rounded-lg border border-zinc-700 p-2 text-left text-sm"
+                  onClick={() => { setEditingWaypointId(wp.id); setWaypointDraft(wp); }}
+                >
+                  <p className="font-semibold">{wp.name}</p>
+                  <p className="text-xs text-zinc-400">{wp.type} · {wp.lat.toFixed(4)}, {wp.lon.toFixed(4)}</p>
+                </button>
+              )
+            )}
+          </div>
         </section>
       )}
 
@@ -275,14 +394,105 @@ export default function HomePage() {
             <Stat label="Meal water" value={`${metrics.totalMealWaterMl} ml`} />
           </div>
 
-          {selectedTrip?.foodItems.map((item) => (
-            <div key={item.id} className="rounded-lg border border-zinc-700 p-2 text-sm">
-              <p className="font-semibold">{item.name}</p>
-              <p className="text-xs text-zinc-400">
-                {item.category} · {item.weight_g}g · {item.calories} cal
-              </p>
-            </div>
-          ))}
+          {selectedTrip?.foodItems.map((item) =>
+            editingFoodId === item.id && foodDraft ? (
+              <div key={item.id} className="space-y-2 rounded-lg border border-indigo-600 p-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="col-span-2">
+                    Name
+                    <input
+                      className="mt-1 w-full"
+                      value={foodDraft.name}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, name: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Category
+                    <input
+                      className="mt-1 w-full"
+                      value={foodDraft.category}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, category: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Satisfaction (1–5)
+                    <input
+                      type="number"
+                      min={1}
+                      max={5}
+                      className="mt-1 w-full"
+                      value={foodDraft.satisfaction_1_5}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, satisfaction_1_5: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label>
+                    Weight (g)
+                    <input
+                      type="number"
+                      min={0}
+                      className="mt-1 w-full"
+                      value={foodDraft.weight_g}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, weight_g: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label>
+                    Calories
+                    <input
+                      type="number"
+                      min={0}
+                      className="mt-1 w-full"
+                      value={foodDraft.calories}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, calories: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label>
+                    Packaging (g)
+                    <input
+                      type="number"
+                      min={0}
+                      className="mt-1 w-full"
+                      value={foodDraft.packaging_weight_g}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, packaging_weight_g: Number(e.target.value) })}
+                    />
+                  </label>
+                  <label>
+                    Water needed (ml)
+                    <input
+                      type="number"
+                      min={0}
+                      className="mt-1 w-full"
+                      value={foodDraft.water_ml_needed}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, water_ml_needed: Number(e.target.value) })}
+                    />
+                  </label>
+                </div>
+                <label>
+                  Notes
+                  <input
+                    className="mt-1 w-full"
+                    value={foodDraft.notes ?? ''}
+                    onChange={(e) => setFoodDraft({ ...foodDraft, notes: e.target.value })}
+                  />
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button className="bg-emerald-700 text-xs" onClick={saveFoodItem}>Save</button>
+                  <button className="text-xs" onClick={() => { setEditingFoodId(null); setFoodDraft(null); }}>Cancel</button>
+                  <button className="bg-red-800 text-xs" onClick={() => deleteFoodItem(item.id)}>Delete</button>
+                </div>
+              </div>
+            ) : (
+              <button
+                key={item.id}
+                className="w-full rounded-lg border border-zinc-700 p-2 text-left text-sm"
+                onClick={() => { setEditingFoodId(item.id); setFoodDraft(item); }}
+              >
+                <p className="font-semibold">{item.name}</p>
+                <p className="text-xs text-zinc-400">
+                  {item.category} · {item.weight_g}g · {item.calories} cal
+                </p>
+              </button>
+            )
+          )}
         </section>
       )}
 
