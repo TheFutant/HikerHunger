@@ -23,3 +23,8 @@ export async function saveTrip(trip: Trip): Promise<void> {
   const db = await getDb();
   await db.put(STORE, trip);
 }
+
+export async function deleteTrip(id: string): Promise<void> {
+  const db = await getDb();
+  await db.delete(STORE, id);
+}

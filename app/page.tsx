@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { calculateFoodMetrics } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
-import { listTrips, saveTrip } from '@/lib/db';
+import { listTrips, saveTrip, deleteTrip } from '@/lib/db';
 import type { FoodItem, Trip, Waypoint } from '@/lib/types';
 
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
@@ -65,6 +65,17 @@ export default function HomePage() {
     setTrips(all);
     setSelectedTripId(next.id);
     setDraft(next);
+  }
+
+  async function removeTrip() {
+    if (!selectedTrip) return;
+    if (!confirm(`Delete "${selectedTrip.name || 'Untitled trip'}"? This cannot be undone.`)) return;
+    await deleteTrip(selectedTrip.id);
+    const all = await listTrips();
+    setTrips(all);
+    const next = all[0] ?? null;
+    setSelectedTripId(next?.id ?? '');
+    setDraft(next ?? emptyTrip());
   }
 
   async function addFoodItem() {
@@ -208,9 +219,14 @@ export default function HomePage() {
             </label>
           </div>
 
-          <button className="w-full bg-emerald-700 font-semibold" onClick={() => persist(draft)}>
-            Save trip details
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button className="bg-emerald-700 font-semibold" onClick={() => persist(draft)}>
+              Save trip details
+            </button>
+            <button className="bg-red-800 font-semibold" onClick={removeTrip} disabled={!selectedTrip}>
+              Delete trip
+            </button>
+          </div>
 
           <label className="block">
             Import GPX
