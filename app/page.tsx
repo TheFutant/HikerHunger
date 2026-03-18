@@ -8,7 +8,10 @@ import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip } from '@/lib/db';
 import type { FoodItem, Trip, Waypoint, WaypointType } from '@/lib/types';
 
+import { fetchProductByBarcode } from '@/lib/openfoodfacts';
+
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
+const BarcodeScanner = dynamic(() => import('@/components/BarcodeScanner'), { ssr: false });
 
 type Tab = 'trips' | 'map' | 'food' | 'settings';
 
@@ -38,6 +41,7 @@ export default function HomePage() {
   const [draft, setDraft] = useState<Trip>(emptyTrip());
   const [isOnline, setIsOnline] = useState(true);
   const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [foodDraft, setFoodDraft] = useState<FoodItem | null>(null);
   const [editingWaypointId, setEditingWaypointId] = useState<string | null>(null);
@@ -107,6 +111,41 @@ export default function HomePage() {
     await persist(updated);
     setEditingFoodId(item.id);
     setFoodDraft(item);
+  }
+
+  async function onBarcodeDetected(barcode: string) {
+    setShowScanner(false);
+    if (!selectedTrip) return;
+    showToast('Looking up product…');
+    try {
+      const product = await fetchProductByBarcode(barcode);
+      if (!product || !product.name) {
+        showToast('Product not found in database.', true);
+        return;
+      }
+      const weight_g = product.serving_size_g ?? 100;
+      const calories =
+        product.calories_per_100g !== null
+          ? Math.round((product.calories_per_100g * weight_g) / 100)
+          : 0;
+      const item: FoodItem = {
+        id: crypto.randomUUID(),
+        name: product.name,
+        category: 'snack',
+        weight_g,
+        calories,
+        packaging_weight_g: 10,
+        water_ml_needed: 0,
+        satisfaction_1_5: 3,
+        notes: '',
+      };
+      const updated = { ...selectedTrip, foodItems: [...selectedTrip.foodItems, item] };
+      await persist(updated);
+      setEditingFoodId(item.id);
+      setFoodDraft(item);
+    } catch {
+      showToast('Failed to look up product.', true);
+    }
   }
 
   async function saveFoodItem() {
@@ -409,9 +448,14 @@ export default function HomePage() {
 
       {tab === 'food' && (
         <section className="space-y-3">
-          <button className="w-full bg-indigo-600 font-semibold" onClick={addFoodItem} disabled={!selectedTrip}>
-            Add food item
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button className="bg-indigo-600 font-semibold" onClick={addFoodItem} disabled={!selectedTrip}>
+              Add manually
+            </button>
+            <button className="bg-indigo-800 font-semibold" onClick={() => setShowScanner(true)} disabled={!selectedTrip}>
+              Scan barcode
+            </button>
+          </div>
 
           <div className="grid grid-cols-2 gap-2 text-sm">
             <Stat label="Food weight" value={`${metrics.totalFoodWeightG} g`} />
@@ -562,6 +606,10 @@ export default function HomePage() {
             />
           </label>
         </section>
+      )}
+
+      {showScanner && (
+        <BarcodeScanner onDetected={onBarcodeDetected} onClose={() => setShowScanner(false)} />
       )}
 
       {toast && (
