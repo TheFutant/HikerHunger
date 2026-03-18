@@ -5,10 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { calculateFoodMetrics } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
-import { listTrips, saveTrip, deleteTrip } from '@/lib/db';
+import { listTrips, saveTrip, deleteTrip, listFoodItems, upsertFoodItem, removeFoodItem } from '@/lib/db';
 import type { FoodItem, Trip, Waypoint, WaypointType } from '@/lib/types';
 import { randomUUID } from '@/lib/uuid';
-
 import { fetchProductByBarcode } from '@/lib/openfoodfacts';
 
 const MapView = dynamic(() => import('@/components/MapView'), { ssr: false });
@@ -43,10 +42,15 @@ export default function HomePage() {
   const [isOnline, setIsOnline] = useState(true);
   const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null);
   const [showScanner, setShowScanner] = useState(false);
+  const [allFoodItems, setAllFoodItems] = useState<FoodItem[]>([]);
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [foodDraft, setFoodDraft] = useState<FoodItem | null>(null);
   const [editingWaypointId, setEditingWaypointId] = useState<string | null>(null);
   const [waypointDraft, setWaypointDraft] = useState<Waypoint | null>(null);
+
+  const reloadFoodItems = useCallback(async () => {
+    setAllFoodItems(await listFoodItems());
+  }, []);
 
   useEffect(() => {
     listTrips().then((items) => {
@@ -56,6 +60,7 @@ export default function HomePage() {
         setDraft(items[0]);
       }
     });
+    reloadFoodItems();
 
     const syncStatus = () => setIsOnline(navigator.onLine);
     syncStatus();
@@ -65,7 +70,7 @@ export default function HomePage() {
       window.removeEventListener('online', syncStatus);
       window.removeEventListener('offline', syncStatus);
     };
-  }, []);
+  }, [reloadFoodItems]);
 
   const showToast = useCallback((message: string, error = false) => {
     setToast({ message, error });
@@ -73,7 +78,11 @@ export default function HomePage() {
   }, []);
 
   const selectedTrip = trips.find((trip) => trip.id === selectedTripId) ?? null;
-  const metrics = useMemo(() => calculateFoodMetrics(selectedTrip?.foodItems ?? []), [selectedTrip]);
+  const tripFoodItems = useMemo(
+    () => allFoodItems.filter((f) => f.tripId === selectedTripId),
+    [allFoodItems, selectedTripId],
+  );
+  const metrics = useMemo(() => calculateFoodMetrics(tripFoodItems), [tripFoodItems]);
 
   async function persist(trip: Trip) {
     const next = { ...trip, updatedAt: new Date().toISOString() };
@@ -96,9 +105,9 @@ export default function HomePage() {
   }
 
   async function addFoodItem() {
-    if (!selectedTrip) return;
     const item: FoodItem = {
       id: randomUUID(),
+      tripId: selectedTripId || undefined,
       name: 'New item',
       category: 'meal',
       weight_g: 100,
@@ -108,15 +117,29 @@ export default function HomePage() {
       satisfaction_1_5: 3,
       notes: '',
     };
-    const updated = { ...selectedTrip, foodItems: [...selectedTrip.foodItems, item] };
-    await persist(updated);
+    await upsertFoodItem(item);
+    await reloadFoodItems();
     setEditingFoodId(item.id);
     setFoodDraft(item);
   }
 
+  async function persistFoodItem() {
+    if (!foodDraft) return;
+    await upsertFoodItem(foodDraft);
+    await reloadFoodItems();
+    setEditingFoodId(null);
+    setFoodDraft(null);
+  }
+
+  async function eraseFoodItem(id: string) {
+    await removeFoodItem(id);
+    await reloadFoodItems();
+    setEditingFoodId(null);
+    setFoodDraft(null);
+  }
+
   async function onBarcodeDetected(barcode: string) {
     setShowScanner(false);
-    if (!selectedTrip) return;
     showToast('Looking up product…');
     try {
       const product = await fetchProductByBarcode(barcode);
@@ -131,6 +154,7 @@ export default function HomePage() {
           : 0;
       const item: FoodItem = {
         id: randomUUID(),
+        tripId: selectedTripId || undefined,
         name: product.name,
         category: 'snack',
         weight_g,
@@ -140,29 +164,13 @@ export default function HomePage() {
         satisfaction_1_5: 3,
         notes: '',
       };
-      const updated = { ...selectedTrip, foodItems: [...selectedTrip.foodItems, item] };
-      await persist(updated);
+      await upsertFoodItem(item);
+      await reloadFoodItems();
       setEditingFoodId(item.id);
       setFoodDraft(item);
     } catch {
       showToast('Failed to look up product.', true);
     }
-  }
-
-  async function saveFoodItem() {
-    if (!selectedTrip || !foodDraft) return;
-    const foodItems = selectedTrip.foodItems.map((f) => (f.id === foodDraft.id ? foodDraft : f));
-    await persist({ ...selectedTrip, foodItems });
-    setEditingFoodId(null);
-    setFoodDraft(null);
-  }
-
-  async function deleteFoodItem(id: string) {
-    if (!selectedTrip) return;
-    const foodItems = selectedTrip.foodItems.filter((f) => f.id !== id);
-    await persist({ ...selectedTrip, foodItems });
-    setEditingFoodId(null);
-    setFoodDraft(null);
   }
 
   async function addWaypoint() {
@@ -236,10 +244,7 @@ export default function HomePage() {
         <section className="space-y-3">
           <button
             className="w-full bg-indigo-600 font-semibold"
-            onClick={async () => {
-              const t = emptyTrip();
-              await persist(t);
-            }}
+            onClick={async () => { await persist(emptyTrip()); }}
           >
             Create trip
           </button>
@@ -318,13 +323,9 @@ export default function HomePage() {
             <button
               className="bg-emerald-700 font-semibold"
               onClick={() => {
-                if (!draft.name.trim()) {
-                  showToast('Trip name is required.', true);
-                  return;
-                }
+                if (!draft.name.trim()) { showToast('Trip name is required.', true); return; }
                 if (draft.startDate && draft.endDate && draft.endDate < draft.startDate) {
-                  showToast('End date cannot be before start date.', true);
-                  return;
+                  showToast('End date cannot be before start date.', true); return;
                 }
                 persist(draft);
               }}
@@ -342,10 +343,7 @@ export default function HomePage() {
               type="file"
               accept=".gpx,application/gpx+xml"
               className="mt-1 w-full"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onImportGpx(file);
-              }}
+              onChange={(e) => { const file = e.target.files?.[0]; if (file) onImportGpx(file); }}
             />
           </label>
 
@@ -365,52 +363,31 @@ export default function HomePage() {
                   <div className="grid grid-cols-2 gap-2">
                     <label>
                       Name
-                      <input
-                        className="mt-1 w-full"
-                        value={waypointDraft.name}
-                        onChange={(e) => setWaypointDraft({ ...waypointDraft, name: e.target.value })}
-                      />
+                      <input className="mt-1 w-full" value={waypointDraft.name}
+                        onChange={(e) => setWaypointDraft({ ...waypointDraft, name: e.target.value })} />
                     </label>
                     <label>
                       Type
-                      <select
-                        className="mt-1 w-full"
-                        value={waypointDraft.type}
-                        onChange={(e) => setWaypointDraft({ ...waypointDraft, type: e.target.value as WaypointType })}
-                      >
-                        {WAYPOINT_TYPES.map((t) => (
-                          <option key={t} value={t}>{t}</option>
-                        ))}
+                      <select className="mt-1 w-full" value={waypointDraft.type}
+                        onChange={(e) => setWaypointDraft({ ...waypointDraft, type: e.target.value as WaypointType })}>
+                        {WAYPOINT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </label>
                     <label>
                       Lat
-                      <input
-                        type="number"
-                        step="any"
-                        className="mt-1 w-full"
-                        value={waypointDraft.lat}
-                        onChange={(e) => setWaypointDraft({ ...waypointDraft, lat: Number(e.target.value) })}
-                      />
+                      <input type="number" step="any" className="mt-1 w-full" value={waypointDraft.lat}
+                        onChange={(e) => setWaypointDraft({ ...waypointDraft, lat: Number(e.target.value) })} />
                     </label>
                     <label>
                       Lon
-                      <input
-                        type="number"
-                        step="any"
-                        className="mt-1 w-full"
-                        value={waypointDraft.lon}
-                        onChange={(e) => setWaypointDraft({ ...waypointDraft, lon: Number(e.target.value) })}
-                      />
+                      <input type="number" step="any" className="mt-1 w-full" value={waypointDraft.lon}
+                        onChange={(e) => setWaypointDraft({ ...waypointDraft, lon: Number(e.target.value) })} />
                     </label>
                   </div>
                   <label>
                     Notes
-                    <input
-                      className="mt-1 w-full"
-                      value={waypointDraft.notes ?? ''}
-                      onChange={(e) => setWaypointDraft({ ...waypointDraft, notes: e.target.value })}
-                    />
+                    <input className="mt-1 w-full" value={waypointDraft.notes ?? ''}
+                      onChange={(e) => setWaypointDraft({ ...waypointDraft, notes: e.target.value })} />
                   </label>
                   <div className="grid grid-cols-3 gap-2">
                     <button className="bg-emerald-700 text-xs" onClick={saveWaypoint}>Save</button>
@@ -419,11 +396,8 @@ export default function HomePage() {
                   </div>
                 </div>
               ) : (
-                <button
-                  key={wp.id}
-                  className="w-full rounded-lg border border-zinc-700 p-2 text-left text-sm"
-                  onClick={() => { setEditingWaypointId(wp.id); setWaypointDraft(wp); }}
-                >
+                <button key={wp.id} className="w-full rounded-lg border border-zinc-700 p-2 text-left text-sm"
+                  onClick={() => { setEditingWaypointId(wp.id); setWaypointDraft(wp); }}>
                   <p className="font-semibold">{wp.name}</p>
                   <p className="text-xs text-zinc-400">{wp.type} · {wp.lat.toFixed(4)}, {wp.lon.toFixed(4)}</p>
                 </button>
@@ -439,9 +413,7 @@ export default function HomePage() {
           {selectedTrip?.routes.map((r) => (
             <div key={r.day} className="rounded-lg border border-zinc-700 p-2 text-xs">
               <p className="font-semibold">{r.meta.name}</p>
-              <p>
-                {r.meta.distanceKm} km · {r.meta.pointCount} points · gain {r.meta.elevationGainM} m
-              </p>
+              <p>{r.meta.distanceKm} km · {r.meta.pointCount} points · gain {r.meta.elevationGainM} m</p>
             </div>
           ))}
         </section>
@@ -450,120 +422,103 @@ export default function HomePage() {
       {tab === 'food' && (
         <section className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
-            <button className="bg-indigo-600 font-semibold" onClick={addFoodItem} disabled={!selectedTrip}>
+            <button className="bg-indigo-600 font-semibold" onClick={addFoodItem}>
               Add manually
             </button>
-            <button className="bg-indigo-800 font-semibold" onClick={() => setShowScanner(true)} disabled={!selectedTrip}>
+            <button className="bg-indigo-800 font-semibold" onClick={() => setShowScanner(true)}>
               Scan barcode
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <Stat label="Food weight" value={`${metrics.totalFoodWeightG} g`} />
-            <Stat label="Calories" value={`${metrics.totalCalories}`} />
-            <Stat label="Cal/oz" value={`${metrics.caloriesPerOunce}`} />
-            <Stat label="Packaging" value={`${metrics.packagingWasteG} g`} />
-            <Stat label="Meal water" value={`${metrics.totalMealWaterMl} ml`} />
-          </div>
-
-          {selectedTrip && selectedTrip.foodItems.length === 0 && (
-            <p className="text-xs text-zinc-500">No food items yet. Add one to start planning.</p>
+          {selectedTripId && (
+            <>
+              <p className="text-xs font-medium text-zinc-400">
+                Trip totals — {trips.find(t => t.id === selectedTripId)?.name || 'Untitled trip'}
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <Stat label="Food weight" value={`${metrics.totalFoodWeightG} g`} />
+                <Stat label="Calories" value={`${metrics.totalCalories}`} />
+                <Stat label="Cal/oz" value={`${metrics.caloriesPerOunce}`} />
+                <Stat label="Packaging" value={`${metrics.packagingWasteG} g`} />
+                <Stat label="Meal water" value={`${metrics.totalMealWaterMl} ml`} />
+              </div>
+            </>
           )}
-          {selectedTrip?.foodItems.map((item) =>
+
+          {allFoodItems.length === 0 && (
+            <p className="text-xs text-zinc-500">No food items yet. Add one to start building your library.</p>
+          )}
+
+          {allFoodItems.map((item) =>
             editingFoodId === item.id && foodDraft ? (
               <div key={item.id} className="space-y-2 rounded-lg border border-indigo-600 p-3 text-sm">
                 <div className="grid grid-cols-2 gap-2">
                   <label className="col-span-2">
                     Name
-                    <input
-                      className="mt-1 w-full"
-                      value={foodDraft.name}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, name: e.target.value })}
-                    />
+                    <input className="mt-1 w-full" value={foodDraft.name}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, name: e.target.value })} />
                   </label>
                   <label>
                     Category
-                    <input
-                      className="mt-1 w-full"
-                      value={foodDraft.category}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, category: e.target.value })}
-                    />
+                    <input className="mt-1 w-full" value={foodDraft.category}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, category: e.target.value })} />
                   </label>
                   <label>
                     Satisfaction (1–5)
-                    <input
-                      type="number"
-                      min={1}
-                      max={5}
-                      className="mt-1 w-full"
-                      value={foodDraft.satisfaction_1_5}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, satisfaction_1_5: Number(e.target.value) })}
-                    />
+                    <input type="number" min={1} max={5} className="mt-1 w-full" value={foodDraft.satisfaction_1_5}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, satisfaction_1_5: Number(e.target.value) })} />
                   </label>
                   <label>
                     Weight (g)
-                    <input
-                      type="number"
-                      min={0}
-                      className="mt-1 w-full"
-                      value={foodDraft.weight_g}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, weight_g: Number(e.target.value) })}
-                    />
+                    <input type="number" min={0} className="mt-1 w-full" value={foodDraft.weight_g}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, weight_g: Number(e.target.value) })} />
                   </label>
                   <label>
                     Calories
-                    <input
-                      type="number"
-                      min={0}
-                      className="mt-1 w-full"
-                      value={foodDraft.calories}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, calories: Number(e.target.value) })}
-                    />
+                    <input type="number" min={0} className="mt-1 w-full" value={foodDraft.calories}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, calories: Number(e.target.value) })} />
                   </label>
                   <label>
                     Packaging (g)
-                    <input
-                      type="number"
-                      min={0}
-                      className="mt-1 w-full"
-                      value={foodDraft.packaging_weight_g}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, packaging_weight_g: Number(e.target.value) })}
-                    />
+                    <input type="number" min={0} className="mt-1 w-full" value={foodDraft.packaging_weight_g}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, packaging_weight_g: Number(e.target.value) })} />
                   </label>
                   <label>
                     Water needed (ml)
-                    <input
-                      type="number"
-                      min={0}
-                      className="mt-1 w-full"
-                      value={foodDraft.water_ml_needed}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, water_ml_needed: Number(e.target.value) })}
-                    />
+                    <input type="number" min={0} className="mt-1 w-full" value={foodDraft.water_ml_needed}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, water_ml_needed: Number(e.target.value) })} />
+                  </label>
+                  <label className="col-span-2">
+                    Trip
+                    <select className="mt-1 w-full" value={foodDraft.tripId ?? ''}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, tripId: e.target.value || undefined })}>
+                      <option value="">— No trip —</option>
+                      {trips.map((t) => <option key={t.id} value={t.id}>{t.name || 'Untitled trip'}</option>)}
+                    </select>
                   </label>
                 </div>
                 <label>
                   Notes
-                  <input
-                    className="mt-1 w-full"
-                    value={foodDraft.notes ?? ''}
-                    onChange={(e) => setFoodDraft({ ...foodDraft, notes: e.target.value })}
-                  />
+                  <input className="mt-1 w-full" value={foodDraft.notes ?? ''}
+                    onChange={(e) => setFoodDraft({ ...foodDraft, notes: e.target.value })} />
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  <button className="bg-emerald-700 text-xs" onClick={saveFoodItem}>Save</button>
+                  <button className="bg-emerald-700 text-xs" onClick={persistFoodItem}>Save</button>
                   <button className="text-xs" onClick={() => { setEditingFoodId(null); setFoodDraft(null); }}>Cancel</button>
-                  <button className="bg-red-800 text-xs" onClick={() => deleteFoodItem(item.id)}>Delete</button>
+                  <button className="bg-red-800 text-xs" onClick={() => eraseFoodItem(item.id)}>Delete</button>
                 </div>
               </div>
             ) : (
-              <button
-                key={item.id}
-                className="w-full rounded-lg border border-zinc-700 p-2 text-left text-sm"
-                onClick={() => { setEditingFoodId(item.id); setFoodDraft(item); }}
-              >
+              <button key={item.id} className="w-full rounded-lg border border-zinc-700 p-2 text-left text-sm"
+                onClick={() => { setEditingFoodId(item.id); setFoodDraft(item); }}>
                 <p className="font-semibold">{item.name}</p>
                 <p className="text-xs text-zinc-400">
                   {item.category} · {item.weight_g}g · {item.calories} cal
+                  {item.tripId && trips.find(t => t.id === item.tripId) && (
+                    <span className="ml-2 rounded bg-indigo-900 px-1 text-indigo-300">
+                      {trips.find(t => t.id === item.tripId)!.name || 'Untitled trip'}
+                    </span>
+                  )}
                 </p>
               </button>
             )
@@ -575,7 +530,11 @@ export default function HomePage() {
         <section className="space-y-3 text-sm">
           <button
             className="w-full"
-            onClick={() => selectedTrip && download(`${selectedTrip.name || 'trip'}.json`, exportTripJson(selectedTrip), 'application/json')}
+            onClick={() => {
+              if (!selectedTrip) return;
+              const tripWithFood = { ...selectedTrip, foodItems: tripFoodItems };
+              download(`${selectedTrip.name || 'trip'}.json`, exportTripJson(tripWithFood), 'application/json');
+            }}
             disabled={!selectedTrip}
           >
             Export trip as JSON
@@ -598,7 +557,12 @@ export default function HomePage() {
                 if (!file) return;
                 try {
                   const trip = importTripJson(await file.text());
-                  await persist(trip);
+                  // Save food items to library with tripId, then save trip without them
+                  for (const item of trip.foodItems) {
+                    await upsertFoodItem({ ...item, tripId: trip.id });
+                  }
+                  await persist({ ...trip, foodItems: [] });
+                  await reloadFoodItems();
                   showToast('Trip imported successfully.');
                 } catch (e) {
                   showToast(e instanceof Error ? e.message : 'Failed to import trip JSON.', true);

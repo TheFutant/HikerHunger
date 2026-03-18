@@ -31,6 +31,7 @@ export interface Waypoint {
 
 export interface FoodItem {
   id: string;
+  tripId?: string;
   name: string;
   category: string;
   weight_g: number;
