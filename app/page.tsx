@@ -7,6 +7,7 @@ import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip } from '@/lib/db';
 import type { FoodItem, Trip, Waypoint, WaypointType } from '@/lib/types';
+import { randomUUID } from '@/lib/uuid';
 
 import { fetchProductByBarcode } from '@/lib/openfoodfacts';
 
@@ -20,7 +21,7 @@ const WAYPOINT_TYPES: WaypointType[] = ['trailhead', 'water', 'camp', 'bailout']
 const emptyTrip = (): Trip => {
   const now = new Date().toISOString();
   return {
-    id: crypto.randomUUID(),
+    id: randomUUID(),
     name: '',
     location: '',
     startDate: '',
@@ -97,7 +98,7 @@ export default function HomePage() {
   async function addFoodItem() {
     if (!selectedTrip) return;
     const item: FoodItem = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       name: 'New item',
       category: 'meal',
       weight_g: 100,
@@ -129,7 +130,7 @@ export default function HomePage() {
           ? Math.round((product.calories_per_100g * weight_g) / 100)
           : 0;
       const item: FoodItem = {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         name: product.name,
         category: 'snack',
         weight_g,
@@ -167,7 +168,7 @@ export default function HomePage() {
   async function addWaypoint() {
     if (!selectedTrip) return;
     const wp: Waypoint = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       name: 'New waypoint',
       type: 'camp',
       lat: 37.77,
