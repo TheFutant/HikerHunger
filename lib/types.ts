@@ -38,6 +38,7 @@ export interface FoodItem {
   calories: number;
   packaging_weight_g: number;
   water_ml_needed: number;
+  quantity: number;
   satisfaction_1_5: number;
   notes?: string;
 }

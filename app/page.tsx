@@ -47,6 +47,8 @@ export default function HomePage() {
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [foodDraft, setFoodDraft] = useState<FoodItem | null>(null);
   const [weightUnit, setWeightUnit] = useState<'g' | 'oz'>('g');
+  const [filterCat, setFilterCat] = useState('');
+  const [sortBy, setSortBy] = useState<'default' | 'name' | 'cpo'>('default');
   const [editingWaypointId, setEditingWaypointId] = useState<string | null>(null);
   const [waypointDraft, setWaypointDraft] = useState<Waypoint | null>(null);
 
@@ -86,6 +88,18 @@ export default function HomePage() {
   );
   const metrics = useMemo(() => calculateFoodMetrics(tripFoodItems), [tripFoodItems]);
 
+  const availableCategories = useMemo(
+    () => [...new Set(allFoodItems.map((f) => f.category).filter(Boolean))].sort(),
+    [allFoodItems],
+  );
+
+  const displayedItems = useMemo(() => {
+    let items = filterCat ? allFoodItems.filter((f) => f.category === filterCat) : allFoodItems;
+    if (sortBy === 'name') return [...items].sort((a, b) => a.name.localeCompare(b.name));
+    if (sortBy === 'cpo') return [...items].sort((a, b) => calPerOz(b.calories, b.weight_g) - calPerOz(a.calories, a.weight_g));
+    return items;
+  }, [allFoodItems, filterCat, sortBy]);
+
   async function persist(trip: Trip) {
     const next = { ...trip, updatedAt: new Date().toISOString() };
     await saveTrip(next);
@@ -112,6 +126,7 @@ export default function HomePage() {
       tripId: selectedTripId || undefined,
       name: 'New item',
       category: 'snack',
+      quantity: 1,
       weight_g: 100,
       calories: 400,
       packaging_weight_g: 10,
@@ -170,6 +185,7 @@ export default function HomePage() {
         tripId: selectedTripId || undefined,
         name: product.name,
         category: 'snack',
+        quantity: 1,
         weight_g,
         calories,
         packaging_weight_g: 10,
@@ -459,11 +475,32 @@ export default function HomePage() {
             </>
           )}
 
+          {allFoodItems.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-1">
+                <button
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${filterCat === '' ? 'bg-indigo-600 text-white' : 'bg-zinc-800 text-zinc-300'}`}
+                  onClick={() => setFilterCat('')}>All</button>
+                {availableCategories.map((cat) => (
+                  <button key={cat}
+                    className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${filterCat === cat ? 'bg-indigo-600 text-white' : 'bg-zinc-800 text-zinc-300'}`}
+                    onClick={() => setFilterCat(c => c === cat ? '' : cat)}>{cat}</button>
+                ))}
+                <select className="ml-auto rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs"
+                  value={sortBy} onChange={(e) => setSortBy(e.target.value as typeof sortBy)}>
+                  <option value="default">Added</option>
+                  <option value="name">Name</option>
+                  <option value="cpo">Cal/oz ↓</option>
+                </select>
+              </div>
+            </div>
+          )}
+
           {allFoodItems.length === 0 && (
             <p className="text-xs text-zinc-500">No food items yet. Add one to start building your library.</p>
           )}
 
-          {allFoodItems.map((item) =>
+          {displayedItems.map((item) =>
             editingFoodId === item.id && foodDraft ? (
               <div key={item.id} className="space-y-2 rounded-lg border border-indigo-600 p-3 text-sm">
                 <div className="grid grid-cols-2 gap-2">
@@ -485,6 +522,11 @@ export default function HomePage() {
                         value={foodDraft.category}
                         onChange={(e) => setFoodDraft({ ...foodDraft, category: e.target.value })} />
                     )}
+                  </label>
+                  <label>
+                    Quantity
+                    <input type="number" min={1} className="mt-1 w-full" value={foodDraft.quantity ?? 1}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, quantity: Math.max(1, Number(e.target.value)) })} />
                   </label>
                   <label>
                     Satisfaction (1–5)
@@ -548,6 +590,10 @@ export default function HomePage() {
                 key={item.id}
                 item={item}
                 tripName={trips.find(t => t.id === item.tripId)?.name}
+                onAddToTrip={selectedTripId && item.tripId !== selectedTripId ? async () => {
+                  await upsertFoodItem({ ...item, tripId: selectedTripId });
+                  await reloadFoodItems();
+                } : undefined}
                 onClick={() => { setEditingFoodId(item.id); setFoodDraft(item); }}
               />
             )
@@ -632,31 +678,50 @@ const CPO_COLORS = {
   poor: 'bg-red-900 text-red-300',
 };
 
-function FoodCard({ item, tripName, onClick }: { item: FoodItem; tripName?: string; onClick: () => void }) {
+function FoodCard({ item, tripName, onAddToTrip, onClick }: {
+  item: FoodItem;
+  tripName?: string;
+  onAddToTrip?: () => void;
+  onClick: () => void;
+}) {
+  const qty = item.quantity ?? 1;
   const cpo = calPerOz(item.calories, item.weight_g);
   const tier = calPerOzTier(cpo);
   const oz = (item.weight_g / GRAMS_PER_OUNCE).toFixed(1);
   return (
-    <button className="w-full rounded-lg border border-zinc-700 p-3 text-left text-sm" onClick={onClick}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-semibold leading-tight">{item.name}</p>
-          <p className="mt-0.5 text-xs text-zinc-400 capitalize">{item.category}</p>
+    <div className="rounded-lg border border-zinc-700">
+      <button className="w-full p-3 text-left text-sm" onClick={onClick}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="font-semibold leading-tight">
+              {qty > 1 && <span className="mr-1 rounded bg-zinc-700 px-1 text-xs text-zinc-300">×{qty}</span>}
+              {item.name}
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-400 capitalize">{item.category}</p>
+          </div>
+          <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-bold ${CPO_COLORS[tier]}`}>
+            {cpo} cal/oz
+          </span>
         </div>
-        <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-bold ${CPO_COLORS[tier]}`}>
-          {cpo} cal/oz
-        </span>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
-        <span>{item.weight_g}g ({oz} oz)</span>
-        <span>{item.calories} cal</span>
-        {item.water_ml_needed > 0 && <span>💧 {item.water_ml_needed} ml</span>}
-        {item.packaging_weight_g > 0 && <span>🗑 {item.packaging_weight_g}g waste</span>}
-        {tripName && (
-          <span className="rounded bg-indigo-900 px-1 text-indigo-300">{tripName}</span>
-        )}
-      </div>
-    </button>
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
+          <span>{item.weight_g}g ({oz} oz){qty > 1 && ` × ${qty}`}</span>
+          <span>{item.calories * qty} cal</span>
+          {item.water_ml_needed > 0 && <span>💧 {item.water_ml_needed * qty} ml</span>}
+          {item.packaging_weight_g > 0 && <span>🗑 {item.packaging_weight_g * qty}g waste</span>}
+          {tripName && (
+            <span className="rounded bg-indigo-900 px-1 text-indigo-300">{tripName}</span>
+          )}
+        </div>
+      </button>
+      {onAddToTrip && (
+        <button
+          className="w-full border-t border-zinc-700 py-1.5 text-xs font-medium text-indigo-400"
+          onClick={(e) => { e.stopPropagation(); onAddToTrip(); }}
+        >
+          + Add to trip
+        </button>
+      )}
+    </div>
   );
 }
 

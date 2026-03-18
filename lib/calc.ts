@@ -23,10 +23,11 @@ export interface FoodMetrics {
 }
 
 export function calculateFoodMetrics(items: FoodItem[]): FoodMetrics {
-  const totalFoodWeightG = items.reduce((sum, i) => sum + i.weight_g, 0);
-  const totalCalories = items.reduce((sum, i) => sum + i.calories, 0);
-  const packagingWasteG = items.reduce((sum, i) => sum + i.packaging_weight_g, 0);
-  const totalMealWaterMl = items.reduce((sum, i) => sum + i.water_ml_needed, 0);
+  const qty = (i: FoodItem) => i.quantity ?? 1;
+  const totalFoodWeightG = items.reduce((sum, i) => sum + i.weight_g * qty(i), 0);
+  const totalCalories = items.reduce((sum, i) => sum + i.calories * qty(i), 0);
+  const packagingWasteG = items.reduce((sum, i) => sum + i.packaging_weight_g * qty(i), 0);
+  const totalMealWaterMl = items.reduce((sum, i) => sum + i.water_ml_needed * qty(i), 0);
   const ounces = totalFoodWeightG / GRAMS_PER_OUNCE;
 
   return {
