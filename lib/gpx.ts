@@ -48,6 +48,11 @@ function computeMeta(name: string, points: RoutePoint[]) {
 export function parseGpx(xml: string): { routes: TripRoute[]; waypoints: Waypoint[] } {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
 
+  const parseError = doc.getElementsByTagName('parsererror')[0];
+  if (parseError) {
+    throw new Error('Invalid GPX file: ' + (parseError.textContent?.split('\n')[0] ?? 'parse error'));
+  }
+
   const trks = Array.from(doc.getElementsByTagName('trk')).slice(0, 2);
   const routes: TripRoute[] = trks.map((trk, idx) => {
     const pts = Array.from(trk.getElementsByTagName('trkpt')).map((pt) => ({

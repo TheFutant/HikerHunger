@@ -1,7 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { calculateFoodMetrics } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
@@ -37,6 +37,7 @@ export default function HomePage() {
   const [selectedTripId, setSelectedTripId] = useState<string>('');
   const [draft, setDraft] = useState<Trip>(emptyTrip());
   const [isOnline, setIsOnline] = useState(true);
+  const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null);
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [foodDraft, setFoodDraft] = useState<FoodItem | null>(null);
   const [editingWaypointId, setEditingWaypointId] = useState<string | null>(null);
@@ -59,6 +60,11 @@ export default function HomePage() {
       window.removeEventListener('online', syncStatus);
       window.removeEventListener('offline', syncStatus);
     };
+  }, []);
+
+  const showToast = useCallback((message: string, error = false) => {
+    setToast({ message, error });
+    setTimeout(() => setToast(null), 4000);
   }, []);
 
   const selectedTrip = trips.find((trip) => trip.id === selectedTripId) ?? null;
@@ -153,10 +159,15 @@ export default function HomePage() {
 
   async function onImportGpx(file: File) {
     if (!selectedTrip) return;
-    const xml = await file.text();
-    const parsed = parseGpx(xml);
-    await persist({ ...selectedTrip, routes: parsed.routes, waypoints: parsed.waypoints });
-    setTab('map');
+    try {
+      const xml = await file.text();
+      const parsed = parseGpx(xml);
+      await persist({ ...selectedTrip, routes: parsed.routes, waypoints: parsed.waypoints });
+      showToast('GPX imported successfully.');
+      setTab('map');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to import GPX.', true);
+    }
   }
 
   function download(name: string, content: string, type: string) {
@@ -521,12 +532,27 @@ export default function HomePage() {
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                const trip = importTripJson(await file.text());
-                await persist(trip);
+                try {
+                  const trip = importTripJson(await file.text());
+                  await persist(trip);
+                  showToast('Trip imported successfully.');
+                } catch (e) {
+                  showToast(e instanceof Error ? e.message : 'Failed to import trip JSON.', true);
+                }
               }}
             />
           </label>
         </section>
+      )}
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed bottom-20 left-1/2 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-lg px-4 py-3 text-sm font-medium shadow-lg ${toast.error ? 'bg-red-800 text-red-100' : 'bg-emerald-800 text-emerald-100'}`}
+        >
+          {toast.message}
+        </div>
       )}
 
       <nav className="fixed inset-x-0 bottom-0 mx-auto grid w-full max-w-md grid-cols-4 border-t border-zinc-700 bg-zinc-900 p-2">
