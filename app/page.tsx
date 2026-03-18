@@ -16,6 +16,7 @@ const BarcodeScanner = dynamic(() => import('@/components/BarcodeScanner'), { ss
 type Tab = 'trips' | 'map' | 'food' | 'settings';
 
 const WAYPOINT_TYPES: WaypointType[] = ['trailhead', 'water', 'camp', 'bailout'];
+const FOOD_CATEGORIES = ['breakfast', 'lunch', 'dinner', 'snack', 'drink'];
 
 const emptyTrip = (): Trip => {
   const now = new Date().toISOString();
@@ -45,6 +46,7 @@ export default function HomePage() {
   const [allFoodItems, setAllFoodItems] = useState<FoodItem[]>([]);
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [foodDraft, setFoodDraft] = useState<FoodItem | null>(null);
+  const [weightUnit, setWeightUnit] = useState<'g' | 'oz'>('g');
   const [editingWaypointId, setEditingWaypointId] = useState<string | null>(null);
   const [waypointDraft, setWaypointDraft] = useState<Waypoint | null>(null);
 
@@ -109,7 +111,7 @@ export default function HomePage() {
       id: randomUUID(),
       tripId: selectedTripId || undefined,
       name: 'New item',
-      category: 'meal',
+      category: 'snack',
       weight_g: 100,
       calories: 400,
       packaging_weight_g: 10,
@@ -121,6 +123,7 @@ export default function HomePage() {
     await reloadFoodItems();
     setEditingFoodId(item.id);
     setFoodDraft(item);
+    setWeightUnit('g');
   }
 
   async function persistFoodItem() {
@@ -129,6 +132,16 @@ export default function HomePage() {
     await reloadFoodItems();
     setEditingFoodId(null);
     setFoodDraft(null);
+  }
+
+  async function duplicateFoodItem() {
+    if (!foodDraft) return;
+    const copy: FoodItem = { ...foodDraft, id: randomUUID(), name: `${foodDraft.name} (copy)` };
+    await upsertFoodItem(copy);
+    await reloadFoodItems();
+    setEditingFoodId(copy.id);
+    setFoodDraft(copy);
+    setWeightUnit('g');
   }
 
   async function eraseFoodItem(id: string) {
@@ -168,6 +181,7 @@ export default function HomePage() {
       await reloadFoodItems();
       setEditingFoodId(item.id);
       setFoodDraft(item);
+      setWeightUnit('g');
     } catch {
       showToast('Failed to look up product.', true);
     }
@@ -460,8 +474,17 @@ export default function HomePage() {
                   </label>
                   <label>
                     Category
-                    <input className="mt-1 w-full" value={foodDraft.category}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, category: e.target.value })} />
+                    <select className="mt-1 w-full"
+                      value={FOOD_CATEGORIES.includes(foodDraft.category) ? foodDraft.category : 'other'}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, category: e.target.value === 'other' ? '' : e.target.value })}>
+                      {FOOD_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      <option value="other">Other…</option>
+                    </select>
+                    {!FOOD_CATEGORIES.includes(foodDraft.category) && (
+                      <input className="mt-1 w-full" placeholder="Custom category"
+                        value={foodDraft.category}
+                        onChange={(e) => setFoodDraft({ ...foodDraft, category: e.target.value })} />
+                    )}
                   </label>
                   <label>
                     Satisfaction (1–5)
@@ -469,9 +492,20 @@ export default function HomePage() {
                       onChange={(e) => setFoodDraft({ ...foodDraft, satisfaction_1_5: Number(e.target.value) })} />
                   </label>
                   <label>
-                    Weight (g)
-                    <input type="number" min={0} className="mt-1 w-full" value={foodDraft.weight_g}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, weight_g: Number(e.target.value) })} />
+                    Weight
+                    <div className="mt-1 flex gap-1">
+                      <input type="number" min={0} step={weightUnit === 'oz' ? '0.01' : '1'} className="flex-1"
+                        value={weightUnit === 'g' ? foodDraft.weight_g : Number((foodDraft.weight_g / GRAMS_PER_OUNCE).toFixed(2))}
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
+                          setFoodDraft({ ...foodDraft, weight_g: weightUnit === 'g' ? v : Math.round(v * GRAMS_PER_OUNCE) });
+                        }} />
+                      <button type="button"
+                        className="rounded-lg border border-zinc-600 px-2 text-xs font-medium"
+                        onClick={() => setWeightUnit(u => u === 'g' ? 'oz' : 'g')}>
+                        {weightUnit}
+                      </button>
+                    </div>
                   </label>
                   <label>
                     Calories
@@ -502,9 +536,10 @@ export default function HomePage() {
                   <input className="mt-1 w-full" value={foodDraft.notes ?? ''}
                     onChange={(e) => setFoodDraft({ ...foodDraft, notes: e.target.value })} />
                 </label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   <button className="bg-emerald-700 text-xs" onClick={persistFoodItem}>Save</button>
                   <button className="text-xs" onClick={() => { setEditingFoodId(null); setFoodDraft(null); }}>Cancel</button>
+                  <button className="bg-zinc-700 text-xs" onClick={duplicateFoodItem}>Duplicate</button>
                   <button className="bg-red-800 text-xs" onClick={() => eraseFoodItem(item.id)}>Delete</button>
                 </div>
               </div>
