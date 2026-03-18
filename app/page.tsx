@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { calculateFoodMetrics } from '@/lib/calc';
+import { calculateFoodMetrics, calPerOz, calPerOzTier, GRAMS_PER_OUNCE } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip, listFoodItems, upsertFoodItem, removeFoodItem } from '@/lib/db';
@@ -35,7 +35,7 @@ const emptyTrip = (): Trip => {
 };
 
 export default function HomePage() {
-  const [tab, setTab] = useState<Tab>('trips');
+  const [tab, setTab] = useState<Tab>('food');
   const [trips, setTrips] = useState<Trip[]>([]);
   const [selectedTripId, setSelectedTripId] = useState<string>('');
   const [draft, setDraft] = useState<Trip>(emptyTrip());
@@ -509,18 +509,12 @@ export default function HomePage() {
                 </div>
               </div>
             ) : (
-              <button key={item.id} className="w-full rounded-lg border border-zinc-700 p-2 text-left text-sm"
-                onClick={() => { setEditingFoodId(item.id); setFoodDraft(item); }}>
-                <p className="font-semibold">{item.name}</p>
-                <p className="text-xs text-zinc-400">
-                  {item.category} · {item.weight_g}g · {item.calories} cal
-                  {item.tripId && trips.find(t => t.id === item.tripId) && (
-                    <span className="ml-2 rounded bg-indigo-900 px-1 text-indigo-300">
-                      {trips.find(t => t.id === item.tripId)!.name || 'Untitled trip'}
-                    </span>
-                  )}
-                </p>
-              </button>
+              <FoodCard
+                key={item.id}
+                item={item}
+                tripName={trips.find(t => t.id === item.tripId)?.name}
+                onClick={() => { setEditingFoodId(item.id); setFoodDraft(item); }}
+              />
             )
           )}
         </section>
@@ -588,12 +582,46 @@ export default function HomePage() {
       )}
 
       <nav className="fixed inset-x-0 bottom-0 mx-auto grid w-full max-w-md grid-cols-4 border-t border-zinc-700 bg-zinc-900 p-2">
+        <TabButton label="Food" active={tab === 'food'} onClick={() => setTab('food')} />
         <TabButton label="Trips" active={tab === 'trips'} onClick={() => setTab('trips')} />
         <TabButton label="Map" active={tab === 'map'} onClick={() => setTab('map')} />
-        <TabButton label="Food/Water" active={tab === 'food'} onClick={() => setTab('food')} />
         <TabButton label="Settings" active={tab === 'settings'} onClick={() => setTab('settings')} />
       </nav>
     </main>
+  );
+}
+
+const CPO_COLORS = {
+  great: 'bg-emerald-800 text-emerald-200',
+  ok: 'bg-amber-800 text-amber-200',
+  poor: 'bg-red-900 text-red-300',
+};
+
+function FoodCard({ item, tripName, onClick }: { item: FoodItem; tripName?: string; onClick: () => void }) {
+  const cpo = calPerOz(item.calories, item.weight_g);
+  const tier = calPerOzTier(cpo);
+  const oz = (item.weight_g / GRAMS_PER_OUNCE).toFixed(1);
+  return (
+    <button className="w-full rounded-lg border border-zinc-700 p-3 text-left text-sm" onClick={onClick}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-semibold leading-tight">{item.name}</p>
+          <p className="mt-0.5 text-xs text-zinc-400 capitalize">{item.category}</p>
+        </div>
+        <span className={`shrink-0 rounded px-2 py-0.5 text-xs font-bold ${CPO_COLORS[tier]}`}>
+          {cpo} cal/oz
+        </span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-400">
+        <span>{item.weight_g}g ({oz} oz)</span>
+        <span>{item.calories} cal</span>
+        {item.water_ml_needed > 0 && <span>💧 {item.water_ml_needed} ml</span>}
+        {item.packaging_weight_g > 0 && <span>🗑 {item.packaging_weight_g}g waste</span>}
+        {tripName && (
+          <span className="rounded bg-indigo-900 px-1 text-indigo-300">{tripName}</span>
+        )}
+      </div>
+    </button>
   );
 }
 

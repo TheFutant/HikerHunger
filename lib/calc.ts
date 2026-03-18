@@ -1,6 +1,18 @@
 import type { FoodItem } from './types';
 
-const GRAMS_PER_OUNCE = 28.3495;
+export const GRAMS_PER_OUNCE = 28.3495;
+
+export function calPerOz(calories: number, weight_g: number): number {
+  const oz = weight_g / GRAMS_PER_OUNCE;
+  return oz > 0 ? Number((calories / oz).toFixed(1)) : 0;
+}
+
+/** ≥100 = great, ≥75 = ok, <75 = poor */
+export function calPerOzTier(cpo: number): 'great' | 'ok' | 'poor' {
+  if (cpo >= 100) return 'great';
+  if (cpo >= 75) return 'ok';
+  return 'poor';
+}
 
 export interface FoodMetrics {
   totalFoodWeightG: number;
