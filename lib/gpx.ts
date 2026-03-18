@@ -33,7 +33,7 @@ function computeMeta(name: string, points: RoutePoint[]) {
   const lons = points.map((p) => p.lon);
   const bounds =
     points.length > 0
-      ? ([Math.min(...lats), Math.min(...lons), Math.max(...lats), Math.max(...lons)] as const)
+      ? ([Math.min(...lats), Math.min(...lons), Math.max(...lats), Math.max(...lons)] as [number, number, number, number])
       : null;
 
   return {
