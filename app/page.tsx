@@ -275,7 +275,20 @@ export default function HomePage() {
           </div>
 
           <div className="grid grid-cols-2 gap-2">
-            <button className="bg-emerald-700 font-semibold" onClick={() => persist(draft)}>
+            <button
+              className="bg-emerald-700 font-semibold"
+              onClick={() => {
+                if (!draft.name.trim()) {
+                  showToast('Trip name is required.', true);
+                  return;
+                }
+                if (draft.startDate && draft.endDate && draft.endDate < draft.startDate) {
+                  showToast('End date cannot be before start date.', true);
+                  return;
+                }
+                persist(draft);
+              }}
+            >
               Save trip details
             </button>
             <button className="bg-red-800 font-semibold" onClick={removeTrip} disabled={!selectedTrip}>
@@ -303,6 +316,9 @@ export default function HomePage() {
                 + Add
               </button>
             </div>
+            {selectedTrip && selectedTrip.waypoints.length === 0 && (
+              <p className="text-xs text-zinc-500">No waypoints yet. Add one or import a GPX file.</p>
+            )}
             {selectedTrip?.waypoints.map((wp) =>
               editingWaypointId === wp.id && waypointDraft ? (
                 <div key={wp.id} className="space-y-2 rounded-lg border border-indigo-600 p-3 text-sm">
@@ -405,6 +421,9 @@ export default function HomePage() {
             <Stat label="Meal water" value={`${metrics.totalMealWaterMl} ml`} />
           </div>
 
+          {selectedTrip && selectedTrip.foodItems.length === 0 && (
+            <p className="text-xs text-zinc-500">No food items yet. Add one to start planning.</p>
+          )}
           {selectedTrip?.foodItems.map((item) =>
             editingFoodId === item.id && foodDraft ? (
               <div key={item.id} className="space-y-2 rounded-lg border border-indigo-600 p-3 text-sm">

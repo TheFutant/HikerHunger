@@ -1,8 +1,23 @@
 'use client';
 
-import { MapContainer, Marker, Polyline, TileLayer, Popup } from 'react-leaflet';
-import type { Trip } from '@/lib/types';
+import { useEffect } from 'react';
+import { MapContainer, Marker, Polyline, TileLayer, Popup, useMap } from 'react-leaflet';
+import type { Trip, TripRoute } from '@/lib/types';
 import 'leaflet/dist/leaflet.css';
+
+function FitBounds({ routes }: { routes: TripRoute[] }) {
+  const map = useMap();
+  useEffect(() => {
+    const bounds = routes.flatMap((r) => (r.meta.bounds ? [r.meta.bounds] : []));
+    if (bounds.length === 0) return;
+    const minLat = Math.min(...bounds.map((b) => b[0]));
+    const minLon = Math.min(...bounds.map((b) => b[1]));
+    const maxLat = Math.max(...bounds.map((b) => b[2]));
+    const maxLon = Math.max(...bounds.map((b) => b[3]));
+    map.fitBounds([[minLat, minLon], [maxLat, maxLon]], { padding: [24, 24] });
+  }, [map, routes]);
+  return null;
+}
 
 export default function MapView({ trip }: { trip: Trip | null }) {
   if (!trip) {
@@ -19,6 +34,8 @@ export default function MapView({ trip }: { trip: Trip | null }) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+
+        <FitBounds routes={trip.routes} />
 
         {trip.routes.map((route) => (
           <Polyline
