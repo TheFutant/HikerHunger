@@ -36,9 +36,13 @@ HikerHunger is a mobile-first web app for planning short backpacking trips with 
 - Food items and auto-calculation of:
   - total food weight
   - total calories
+  - calories per day (from trip start/end dates)
   - calories per ounce
+  - total protein, carbs, and fat
   - packaging waste
   - total meal water needed
+- Optional per-item macronutrients (protein/carbs/fat), auto-filled from
+  Open Food Facts when a barcode is scanned.
 - Mobile-first single-column layout with bottom tab navigation (Trips, Map, Food/Water, Settings).
 - Dark mode styling and online/offline indicator.
 

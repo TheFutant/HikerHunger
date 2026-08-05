@@ -36,6 +36,9 @@ export interface FoodItem {
   category: string;
   weight_g: number;
   calories: number;
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
   packaging_weight_g: number;
   water_ml_needed: number;
   quantity: number;

@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { calculateFoodMetrics, calPerOz, calPerOzTier, GRAMS_PER_OUNCE } from '@/lib/calc';
+import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, GRAMS_PER_OUNCE } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip, listFoodItems, upsertFoodItem, removeFoodItem } from '@/lib/db';
@@ -87,6 +87,11 @@ export default function HomePage() {
     [allFoodItems, selectedTripId],
   );
   const metrics = useMemo(() => calculateFoodMetrics(tripFoodItems), [tripFoodItems]);
+  const tripDayCount = useMemo(
+    () => (selectedTrip ? tripDays(selectedTrip.startDate, selectedTrip.endDate) : 0),
+    [selectedTrip],
+  );
+  const calPerDay = caloriesPerDay(metrics.totalCalories, tripDayCount);
 
   const availableCategories = useMemo(
     () => [...new Set(allFoodItems.map((f) => f.category).filter(Boolean))].sort(),
@@ -176,10 +181,9 @@ export default function HomePage() {
         return;
       }
       const weight_g = product.serving_size_g ?? 100;
-      const calories =
-        product.calories_per_100g !== null
-          ? Math.round((product.calories_per_100g * weight_g) / 100)
-          : 0;
+      const scale = (per100g: number | null) =>
+        per100g !== null ? Math.round((per100g * weight_g) / 100) : 0;
+      const calories = scale(product.calories_per_100g);
       const item: FoodItem = {
         id: randomUUID(),
         tripId: selectedTripId || undefined,
@@ -188,6 +192,9 @@ export default function HomePage() {
         quantity: 1,
         weight_g,
         calories,
+        protein_g: scale(product.protein_per_100g),
+        carbs_g: scale(product.carbs_per_100g),
+        fat_g: scale(product.fat_per_100g),
         packaging_weight_g: 10,
         water_ml_needed: 0,
         satisfaction_1_5: 3,
@@ -464,11 +471,19 @@ export default function HomePage() {
             <>
               <p className="text-xs font-medium text-zinc-400">
                 Trip totals — {trips.find(t => t.id === selectedTripId)?.name || 'Untitled trip'}
+                {tripDayCount > 0 && ` · ${tripDayCount} day${tripDayCount === 1 ? '' : 's'}`}
               </p>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <Stat label="Food weight" value={`${metrics.totalFoodWeightG} g`} />
                 <Stat label="Calories" value={`${metrics.totalCalories}`} />
+                <Stat
+                  label="Cal/day"
+                  value={calPerDay !== null ? `${calPerDay}` : 'set dates'}
+                />
                 <Stat label="Cal/oz" value={`${metrics.caloriesPerOunce}`} />
+                <Stat label="Protein" value={`${metrics.totalProteinG} g`} />
+                <Stat label="Carbs" value={`${metrics.totalCarbsG} g`} />
+                <Stat label="Fat" value={`${metrics.totalFatG} g`} />
                 <Stat label="Packaging" value={`${metrics.packagingWasteG} g`} />
                 <Stat label="Meal water" value={`${metrics.totalMealWaterMl} ml`} />
               </div>
@@ -553,6 +568,21 @@ export default function HomePage() {
                     Calories
                     <input type="number" min={0} className="mt-1 w-full" value={foodDraft.calories}
                       onChange={(e) => setFoodDraft({ ...foodDraft, calories: Number(e.target.value) })} />
+                  </label>
+                  <label>
+                    Protein (g)
+                    <input type="number" min={0} step="any" className="mt-1 w-full" value={foodDraft.protein_g ?? 0}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, protein_g: Number(e.target.value) })} />
+                  </label>
+                  <label>
+                    Carbs (g)
+                    <input type="number" min={0} step="any" className="mt-1 w-full" value={foodDraft.carbs_g ?? 0}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, carbs_g: Number(e.target.value) })} />
+                  </label>
+                  <label>
+                    Fat (g)
+                    <input type="number" min={0} step="any" className="mt-1 w-full" value={foodDraft.fat_g ?? 0}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, fat_g: Number(e.target.value) })} />
                   </label>
                   <label>
                     Packaging (g)
@@ -688,6 +718,7 @@ function FoodCard({ item, tripName, onAddToTrip, onClick }: {
   const cpo = calPerOz(item.calories, item.weight_g);
   const tier = calPerOzTier(cpo);
   const oz = (item.weight_g / GRAMS_PER_OUNCE).toFixed(1);
+  const hasMacros = Boolean(item.protein_g || item.carbs_g || item.fat_g);
   return (
     <div className="rounded-lg border border-zinc-700">
       <button className="w-full p-3 text-left text-sm" onClick={onClick}>
@@ -712,6 +743,13 @@ function FoodCard({ item, tripName, onAddToTrip, onClick }: {
             <span className="rounded bg-indigo-900 px-1 text-indigo-300">{tripName}</span>
           )}
         </div>
+        {hasMacros && (
+          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-zinc-500">
+            <span>P {(item.protein_g ?? 0) * qty}g</span>
+            <span>C {(item.carbs_g ?? 0) * qty}g</span>
+            <span>F {(item.fat_g ?? 0) * qty}g</span>
+          </div>
+        )}
       </button>
       {onAddToTrip && (
         <button

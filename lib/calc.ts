@@ -20,21 +20,47 @@ export interface FoodMetrics {
   caloriesPerOunce: number;
   packagingWasteG: number;
   totalMealWaterMl: number;
+  totalProteinG: number;
+  totalCarbsG: number;
+  totalFatG: number;
 }
 
 export function calculateFoodMetrics(items: FoodItem[]): FoodMetrics {
   const qty = (i: FoodItem) => i.quantity ?? 1;
-  const totalFoodWeightG = items.reduce((sum, i) => sum + i.weight_g * qty(i), 0);
-  const totalCalories = items.reduce((sum, i) => sum + i.calories * qty(i), 0);
-  const packagingWasteG = items.reduce((sum, i) => sum + i.packaging_weight_g * qty(i), 0);
-  const totalMealWaterMl = items.reduce((sum, i) => sum + i.water_ml_needed * qty(i), 0);
+  const sum = (pick: (i: FoodItem) => number) =>
+    items.reduce((total, i) => total + pick(i) * qty(i), 0);
+
+  const totalFoodWeightG = sum((i) => i.weight_g);
+  const totalCalories = sum((i) => i.calories);
   const ounces = totalFoodWeightG / GRAMS_PER_OUNCE;
 
   return {
     totalFoodWeightG,
     totalCalories,
     caloriesPerOunce: ounces > 0 ? Number((totalCalories / ounces).toFixed(2)) : 0,
-    packagingWasteG,
-    totalMealWaterMl,
+    packagingWasteG: sum((i) => i.packaging_weight_g),
+    totalMealWaterMl: sum((i) => i.water_ml_needed),
+    totalProteinG: sum((i) => i.protein_g ?? 0),
+    totalCarbsG: sum((i) => i.carbs_g ?? 0),
+    totalFatG: sum((i) => i.fat_g ?? 0),
   };
+}
+
+/**
+ * Inclusive number of days a trip spans, from ISO date strings (YYYY-MM-DD).
+ * Returns 0 when either date is missing/invalid, or when end precedes start.
+ */
+export function tripDays(startDate: string, endDate: string): number {
+  if (!startDate || !endDate) return 0;
+  const start = Date.parse(startDate);
+  const end = Date.parse(endDate);
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return 0;
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.round((end - start) / msPerDay) + 1;
+}
+
+/** Whole calories per day, or null when the trip length is unknown. */
+export function caloriesPerDay(totalCalories: number, days: number): number | null {
+  if (days <= 0) return null;
+  return Math.round(totalCalories / days);
 }
