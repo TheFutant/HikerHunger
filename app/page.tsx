@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, GRAMS_PER_OUNCE } from '@/lib/calc';
+import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, calorieTargetTier, GRAMS_PER_OUNCE, type FoodMetrics } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip, listFoodItems, upsertFoodItem, removeFoodItem } from '@/lib/db';
@@ -92,6 +92,19 @@ export default function HomePage() {
     [selectedTrip],
   );
   const calPerDay = caloriesPerDay(metrics.totalCalories, tripDayCount);
+  const dayPlan = useMemo(() => {
+    if (tripDayCount <= 0) return [];
+    return Array.from({ length: tripDayCount }, (_, i) => {
+      const day = i + 1;
+      return { day, metrics: calculateFoodMetrics(tripFoodItems.filter((f) => f.day === day)) };
+    });
+  }, [tripFoodItems, tripDayCount]);
+  const unassignedMetrics = useMemo(
+    () => calculateFoodMetrics(tripFoodItems.filter((f) => !f.day || f.day > tripDayCount)),
+    [tripFoodItems, tripDayCount],
+  );
+  const foodDraftTrip = foodDraft?.tripId ? trips.find((t) => t.id === foodDraft.tripId) : undefined;
+  const foodDraftDays = foodDraftTrip ? tripDays(foodDraftTrip.startDate, foodDraftTrip.endDate) : 0;
 
   const availableCategories = useMemo(
     () => [...new Set(allFoodItems.map((f) => f.category).filter(Boolean))].sort(),
@@ -346,6 +359,20 @@ export default function HomePage() {
               </label>
             </div>
             <label>
+              Daily calorie target
+              <input
+                type="number"
+                min={0}
+                step={50}
+                placeholder="e.g. 3000"
+                className="mt-1 w-full"
+                value={draft.dailyCalorieTarget ?? ''}
+                onChange={(e) =>
+                  setDraft({ ...draft, dailyCalorieTarget: e.target.value ? Number(e.target.value) : undefined })
+                }
+              />
+            </label>
+            <label>
               Notes
               <textarea
                 className="mt-1 w-full"
@@ -487,6 +514,23 @@ export default function HomePage() {
                 <Stat label="Packaging" value={`${metrics.packagingWasteG} g`} />
                 <Stat label="Meal water" value={`${metrics.totalMealWaterMl} ml`} />
               </div>
+
+              {dayPlan.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-zinc-400">Day plan</p>
+                  {dayPlan.map(({ day, metrics: dm }) => (
+                    <DayRow
+                      key={day}
+                      label={`Day ${day}`}
+                      metrics={dm}
+                      target={selectedTrip?.dailyCalorieTarget}
+                    />
+                  ))}
+                  {unassignedMetrics.totalCalories > 0 && (
+                    <DayRow label="Unassigned" metrics={unassignedMetrics} />
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -597,11 +641,34 @@ export default function HomePage() {
                   <label className="col-span-2">
                     Trip
                     <select className="mt-1 w-full" value={foodDraft.tripId ?? ''}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, tripId: e.target.value || undefined })}>
+                      onChange={(e) => {
+                        const tripId = e.target.value || undefined;
+                        setFoodDraft({
+                          ...foodDraft,
+                          tripId,
+                          day: tripId === foodDraft.tripId ? foodDraft.day : undefined,
+                        });
+                      }}>
                       <option value="">— No trip —</option>
                       {trips.map((t) => <option key={t.id} value={t.id}>{t.name || 'Untitled trip'}</option>)}
                     </select>
                   </label>
+                  {foodDraft.tripId && (
+                    <label className="col-span-2">
+                      Day
+                      {foodDraftDays > 0 ? (
+                        <select className="mt-1 w-full" value={foodDraft.day ?? ''}
+                          onChange={(e) => setFoodDraft({ ...foodDraft, day: e.target.value ? Number(e.target.value) : undefined })}>
+                          <option value="">Unassigned</option>
+                          {Array.from({ length: foodDraftDays }, (_, i) => i + 1).map((d) => (
+                            <option key={d} value={d}>Day {d}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="mt-1 text-xs text-zinc-500">Set trip start/end dates to plan by day.</p>
+                      )}
+                    </label>
+                  )}
                 </div>
                 <label>
                   Notes
@@ -742,6 +809,9 @@ function FoodCard({ item, tripName, onAddToTrip, onClick }: {
           {tripName && (
             <span className="rounded bg-indigo-900 px-1 text-indigo-300">{tripName}</span>
           )}
+          {item.day && (
+            <span className="rounded bg-zinc-800 px-1 text-zinc-300">Day {item.day}</span>
+          )}
         </div>
         {hasMacros && (
           <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-zinc-500">
@@ -759,6 +829,41 @@ function FoodCard({ item, tripName, onAddToTrip, onClick }: {
           + Add to trip
         </button>
       )}
+    </div>
+  );
+}
+
+const TARGET_COLORS = {
+  under: { text: 'text-amber-300', bar: 'bg-amber-600' },
+  good: { text: 'text-emerald-300', bar: 'bg-emerald-600' },
+  over: { text: 'text-red-300', bar: 'bg-red-700' },
+};
+
+function DayRow({ label, metrics, target }: { label: string; metrics: FoodMetrics; target?: number }) {
+  const tier = target ? calorieTargetTier(metrics.totalCalories, target) : null;
+  const pct = target ? Math.min(100, Math.round((metrics.totalCalories / target) * 100)) : null;
+  const colors = tier ? TARGET_COLORS[tier] : null;
+  const hasMacros = metrics.totalProteinG > 0 || metrics.totalCarbsG > 0 || metrics.totalFatG > 0;
+  return (
+    <div className="rounded-lg border border-zinc-700 p-2 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold">{label}</span>
+        <span className={colors ? colors.text : 'text-zinc-300'}>
+          {metrics.totalCalories} cal{target ? ` / ${target}` : ''}
+        </span>
+      </div>
+      {pct !== null && colors && (
+        <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-zinc-800">
+          <div className={`h-full ${colors.bar}`} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <div className="mt-1 flex flex-wrap gap-x-3 text-zinc-500">
+        <span>{metrics.totalFoodWeightG} g</span>
+        {hasMacros && (
+          <span>P {metrics.totalProteinG}g · C {metrics.totalCarbsG}g · F {metrics.totalFatG}g</span>
+        )}
+        {metrics.totalMealWaterMl > 0 && <span>💧 {metrics.totalMealWaterMl} ml</span>}
+      </div>
     </div>
   );
 }

@@ -32,6 +32,8 @@ export interface Waypoint {
 export interface FoodItem {
   id: string;
   tripId?: string;
+  /** 1-based trip day this item is planned for; undefined = unassigned. */
+  day?: number;
   name: string;
   category: string;
   weight_g: number;
@@ -53,6 +55,8 @@ export interface Trip {
   startDate: string;
   endDate: string;
   notes: string;
+  /** Target calories per person per day; undefined = no target set. */
+  dailyCalorieTarget?: number;
   routes: TripRoute[];
   waypoints: Waypoint[];
   foodItems: FoodItem[];

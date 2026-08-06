@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateFoodMetrics, tripDays, caloriesPerDay } from '@/lib/calc';
+import { calculateFoodMetrics, tripDays, caloriesPerDay, calorieTargetTier } from '@/lib/calc';
 import type { FoodItem } from '@/lib/types';
 
 const item = (overrides: Partial<FoodItem>): FoodItem => ({
@@ -58,6 +58,27 @@ describe('tripDays', () => {
     expect(tripDays('', '2026-08-03')).toBe(0);
     expect(tripDays('2026-08-05', '2026-08-01')).toBe(0);
     expect(tripDays('not-a-date', '2026-08-01')).toBe(0);
+  });
+});
+
+describe('calorieTargetTier', () => {
+  it('flags days well under target', () => {
+    expect(calorieTargetTier(2000, 3000)).toBe('under');
+    expect(calorieTargetTier(2699, 3000)).toBe('under');
+  });
+
+  it('accepts days near target', () => {
+    expect(calorieTargetTier(2700, 3000)).toBe('good');
+    expect(calorieTargetTier(3000, 3000)).toBe('good');
+    expect(calorieTargetTier(3450, 3000)).toBe('good');
+  });
+
+  it('flags days well over target', () => {
+    expect(calorieTargetTier(3451, 3000)).toBe('over');
+  });
+
+  it('treats a non-positive target as always good', () => {
+    expect(calorieTargetTier(2000, 0)).toBe('good');
   });
 });
 

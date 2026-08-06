@@ -64,3 +64,15 @@ export function caloriesPerDay(totalCalories: number, days: number): number | nu
   if (days <= 0) return null;
   return Math.round(totalCalories / days);
 }
+
+/**
+ * How a day's planned calories compare to the daily target.
+ * <90% = under, 90–115% = good, >115% = over.
+ */
+export function calorieTargetTier(calories: number, target: number): 'under' | 'good' | 'over' {
+  if (target <= 0) return 'good';
+  const ratio = calories / target;
+  if (ratio < 0.9) return 'under';
+  if (ratio > 1.15) return 'over';
+  return 'good';
+}
