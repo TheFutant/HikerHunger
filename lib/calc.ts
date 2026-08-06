@@ -65,6 +65,11 @@ export function caloriesPerDay(totalCalories: number, days: number): number | nu
   return Math.round(totalCalories / days);
 }
 
+/** Items that need hot water — conflicts on a no-stove (cold soak) trip. */
+export function hotWaterItems(items: FoodItem[]): FoodItem[] {
+  return items.filter((i) => i.prep === 'hot_water');
+}
+
 export interface DayWaterPlan {
   mealMl: number;
   drinkingMl: number;

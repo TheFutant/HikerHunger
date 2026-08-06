@@ -2,11 +2,11 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan, GRAMS_PER_OUNCE, type FoodMetrics } from '@/lib/calc';
+import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan, hotWaterItems, GRAMS_PER_OUNCE, type FoodMetrics } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip, listFoodItems, upsertFoodItem, removeFoodItem } from '@/lib/db';
-import type { FoodItem, Trip, Waypoint, WaypointType } from '@/lib/types';
+import type { FoodItem, PrepMethod, Trip, Waypoint, WaypointType } from '@/lib/types';
 import { randomUUID } from '@/lib/uuid';
 import { fetchProductByBarcode } from '@/lib/openfoodfacts';
 
@@ -108,6 +108,10 @@ export default function HomePage() {
   const waterSources = useMemo(
     () => selectedTrip?.waypoints.filter((w) => w.type === 'water') ?? [],
     [selectedTrip],
+  );
+  const stoveConflicts = useMemo(
+    () => (selectedTrip?.noStove ? hotWaterItems(tripFoodItems) : []),
+    [selectedTrip, tripFoodItems],
   );
 
   const availableCategories = useMemo(
@@ -392,6 +396,14 @@ export default function HomePage() {
                 />
               </label>
             </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={draft.noStove ?? false}
+                onChange={(e) => setDraft({ ...draft, noStove: e.target.checked || undefined })}
+              />
+              No-stove trip (cold soak) — flag foods that need hot water
+            </label>
             <label>
               Notes
               <textarea
@@ -541,6 +553,13 @@ export default function HomePage() {
                 )}
               </div>
 
+              {stoveConflicts.length > 0 && (
+                <div className="rounded-lg border border-amber-700 bg-amber-950 p-2 text-xs text-amber-200">
+                  ⚠️ No-stove trip, but {stoveConflicts.length === 1 ? 'this item needs' : `${stoveConflicts.length} items need`} hot water:{' '}
+                  {stoveConflicts.map((i) => i.name).join(', ')}. Swap for cold-soakable options or mark their prep.
+                </div>
+              )}
+
               {dayPlan.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-xs font-medium text-zinc-400">Day plan</p>
@@ -683,6 +702,30 @@ export default function HomePage() {
                     <input type="number" min={0} className="mt-1 w-full" value={foodDraft.water_ml_needed}
                       onChange={(e) => setFoodDraft({ ...foodDraft, water_ml_needed: Number(e.target.value) })} />
                   </label>
+                  <label>
+                    Prep
+                    <select className="mt-1 w-full" value={foodDraft.prep ?? 'ready'}
+                      onChange={(e) => {
+                        const prep = e.target.value as PrepMethod;
+                        setFoodDraft({
+                          ...foodDraft,
+                          prep,
+                          soak_minutes: prep === 'cold_soak' ? foodDraft.soak_minutes : undefined,
+                        });
+                      }}>
+                      <option value="ready">Ready to eat</option>
+                      <option value="cold_soak">Cold soak</option>
+                      <option value="hot_water">Needs hot water</option>
+                    </select>
+                  </label>
+                  {foodDraft.prep === 'cold_soak' && (
+                    <label>
+                      Soak time (min)
+                      <input type="number" min={0} step={5} placeholder="e.g. 30" className="mt-1 w-full"
+                        value={foodDraft.soak_minutes ?? ''}
+                        onChange={(e) => setFoodDraft({ ...foodDraft, soak_minutes: e.target.value ? Number(e.target.value) : undefined })} />
+                    </label>
+                  )}
                   <label className="col-span-2">
                     Trip
                     <select className="mt-1 w-full" value={foodDraft.tripId ?? ''}
@@ -732,6 +775,7 @@ export default function HomePage() {
                 key={item.id}
                 item={item}
                 tripName={trips.find(t => t.id === item.tripId)?.name}
+                noStoveConflict={Boolean(item.prep === 'hot_water' && trips.find((t) => t.id === item.tripId)?.noStove)}
                 onAddToTrip={selectedTripId && item.tripId !== selectedTripId ? async () => {
                   await upsertFoodItem({ ...item, tripId: selectedTripId });
                   await reloadFoodItems();
@@ -820,9 +864,10 @@ const CPO_COLORS = {
   poor: 'bg-red-900 text-red-300',
 };
 
-function FoodCard({ item, tripName, onAddToTrip, onClick }: {
+function FoodCard({ item, tripName, noStoveConflict, onAddToTrip, onClick }: {
   item: FoodItem;
   tripName?: string;
+  noStoveConflict?: boolean;
   onAddToTrip?: () => void;
   onClick: () => void;
 }) {
@@ -856,6 +901,16 @@ function FoodCard({ item, tripName, onAddToTrip, onClick }: {
           )}
           {item.day && (
             <span className="rounded bg-zinc-800 px-1 text-zinc-300">Day {item.day}</span>
+          )}
+          {item.prep === 'cold_soak' && (
+            <span className="rounded bg-sky-900 px-1 text-sky-300">
+              🥄 soak{item.soak_minutes ? ` ${item.soak_minutes}m` : ''}
+            </span>
+          )}
+          {item.prep === 'hot_water' && (
+            <span className={`rounded px-1 ${noStoveConflict ? 'bg-red-900 font-semibold text-red-200' : 'bg-zinc-800 text-zinc-300'}`}>
+              🔥 hot water{noStoveConflict ? ' — no stove!' : ''}
+            </span>
           )}
         </div>
         {hasMacros && (

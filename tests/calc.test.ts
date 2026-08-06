@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateFoodMetrics, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan } from '@/lib/calc';
+import { calculateFoodMetrics, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan, hotWaterItems } from '@/lib/calc';
 import type { FoodItem } from '@/lib/types';
 
 const item = (overrides: Partial<FoodItem>): FoodItem => ({
@@ -79,6 +79,18 @@ describe('calorieTargetTier', () => {
 
   it('treats a non-positive target as always good', () => {
     expect(calorieTargetTier(2000, 0)).toBe('good');
+  });
+});
+
+describe('hotWaterItems', () => {
+  it('returns only items needing hot water', () => {
+    const conflicts = hotWaterItems([
+      item({ id: '1', name: 'Ramen', prep: 'hot_water' }),
+      item({ id: '2', name: 'Couscous', prep: 'cold_soak', soak_minutes: 30 }),
+      item({ id: '3', name: 'Trail mix', prep: 'ready' }),
+      item({ id: '4', name: 'Unmarked bar' }),
+    ]);
+    expect(conflicts.map((i) => i.name)).toEqual(['Ramen']);
   });
 });
 
