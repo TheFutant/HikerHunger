@@ -74,6 +74,21 @@ HikerHunger is a mobile-first web app for planning short backpacking trips with 
 - The app is an installable PWA: `public/manifest.webmanifest` plus a service worker (`public/sw.js`) that precaches the app shell and caches same-origin static assets (stale-while-revalidate), so the app loads and works offline after the first visit. External requests (Open Food Facts, map tiles) are intentionally not cached. The service worker only registers in production builds.
 - Food item editing UI is intentionally minimal for MVP; users can add items and view calculated totals.
 
+## Deploying to Fly.io
+The app is stateless (all user data lives in the browser's IndexedDB), so it
+needs no volumes, secrets, or database. `Dockerfile` and `fly.toml` are
+included; Next.js builds in `standalone` mode for a small runtime image.
+
+```bash
+fly launch --no-deploy   # first time only: registers the app, keeps fly.toml
+fly deploy
+```
+
+If the app name `hikerhunger` is taken, change `app` in `fly.toml` (or let
+`fly launch` pick a name). The config scales to zero when idle. After
+deploying, open the HTTPS URL on your phone and use "Add to Home Screen" to
+install it; it works offline after the first load.
+
 ## Sample data
 - Sample GPX: `samples/sample-route.gpx`
 - Sample trip JSON: `samples/sample-trip.json`
