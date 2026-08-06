@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan, hotWaterItems, GRAMS_PER_OUNCE, type FoodMetrics } from '@/lib/calc';
+import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan, hotWaterItems, unverifiedPrepItems, GRAMS_PER_OUNCE, type FoodMetrics } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip, listFoodItems, upsertFoodItem, removeFoodItem } from '@/lib/db';
@@ -111,6 +111,10 @@ export default function HomePage() {
   );
   const stoveConflicts = useMemo(
     () => (selectedTrip?.noStove ? hotWaterItems(tripFoodItems) : []),
+    [selectedTrip, tripFoodItems],
+  );
+  const prepUnverified = useMemo(
+    () => (selectedTrip?.noStove ? unverifiedPrepItems(tripFoodItems) : []),
     [selectedTrip, tripFoodItems],
   );
 
@@ -553,10 +557,20 @@ export default function HomePage() {
                 )}
               </div>
 
-              {stoveConflicts.length > 0 && (
-                <div className="rounded-lg border border-amber-700 bg-amber-950 p-2 text-xs text-amber-200">
-                  ⚠️ No-stove trip, but {stoveConflicts.length === 1 ? 'this item needs' : `${stoveConflicts.length} items need`} hot water:{' '}
-                  {stoveConflicts.map((i) => i.name).join(', ')}. Swap for cold-soakable options or mark their prep.
+              {(stoveConflicts.length > 0 || prepUnverified.length > 0) && (
+                <div className="space-y-1 rounded-lg border border-amber-700 bg-amber-950 p-2 text-xs text-amber-200">
+                  {stoveConflicts.length > 0 && (
+                    <p>
+                      ⚠️ No-stove trip, but {stoveConflicts.length === 1 ? 'this item needs' : `${stoveConflicts.length} items need`} hot water:{' '}
+                      {stoveConflicts.map((i) => i.name).join(', ')}. Swap for cold-soakable options or mark their prep.
+                    </p>
+                  )}
+                  {prepUnverified.length > 0 && (
+                    <p>
+                      ❓ {prepUnverified.length === 1 ? '1 item has' : `${prepUnverified.length} items have`} no prep method set:{' '}
+                      {prepUnverified.map((i) => i.name).join(', ')}. Verify {prepUnverified.length === 1 ? 'it works' : 'they work'} without a stove.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -776,6 +790,7 @@ export default function HomePage() {
                 item={item}
                 tripName={trips.find(t => t.id === item.tripId)?.name}
                 noStoveConflict={Boolean(item.prep === 'hot_water' && trips.find((t) => t.id === item.tripId)?.noStove)}
+                prepUnverified={Boolean(item.prep === undefined && trips.find((t) => t.id === item.tripId)?.noStove)}
                 onAddToTrip={selectedTripId && item.tripId !== selectedTripId ? async () => {
                   await upsertFoodItem({ ...item, tripId: selectedTripId });
                   await reloadFoodItems();
@@ -864,10 +879,11 @@ const CPO_COLORS = {
   poor: 'bg-red-900 text-red-300',
 };
 
-function FoodCard({ item, tripName, noStoveConflict, onAddToTrip, onClick }: {
+function FoodCard({ item, tripName, noStoveConflict, prepUnverified, onAddToTrip, onClick }: {
   item: FoodItem;
   tripName?: string;
   noStoveConflict?: boolean;
+  prepUnverified?: boolean;
   onAddToTrip?: () => void;
   onClick: () => void;
 }) {
@@ -911,6 +927,9 @@ function FoodCard({ item, tripName, noStoveConflict, onAddToTrip, onClick }: {
             <span className={`rounded px-1 ${noStoveConflict ? 'bg-red-900 font-semibold text-red-200' : 'bg-zinc-800 text-zinc-300'}`}>
               🔥 hot water{noStoveConflict ? ' — no stove!' : ''}
             </span>
+          )}
+          {prepUnverified && (
+            <span className="rounded bg-amber-900 px-1 text-amber-200">❓ prep? — verify</span>
           )}
         </div>
         {hasMacros && (

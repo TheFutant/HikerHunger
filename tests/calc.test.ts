@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateFoodMetrics, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan, hotWaterItems } from '@/lib/calc';
+import { calculateFoodMetrics, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan, hotWaterItems, unverifiedPrepItems } from '@/lib/calc';
 import type { FoodItem } from '@/lib/types';
 
 const item = (overrides: Partial<FoodItem>): FoodItem => ({
@@ -91,6 +91,18 @@ describe('hotWaterItems', () => {
       item({ id: '4', name: 'Unmarked bar' }),
     ]);
     expect(conflicts.map((i) => i.name)).toEqual(['Ramen']);
+  });
+});
+
+describe('unverifiedPrepItems', () => {
+  it('returns only items with no prep method set', () => {
+    const unverified = unverifiedPrepItems([
+      item({ id: '1', name: 'Ramen', prep: 'hot_water' }),
+      item({ id: '2', name: 'Couscous', prep: 'cold_soak' }),
+      item({ id: '3', name: 'Trail mix', prep: 'ready' }),
+      item({ id: '4', name: 'Unmarked bar' }),
+    ]);
+    expect(unverified.map((i) => i.name)).toEqual(['Unmarked bar']);
   });
 });
 

@@ -51,7 +51,9 @@ HikerHunger is a mobile-first web app for planning short backpacking trips with 
 - Cold soak / no-stove planning: optional per-item prep method (ready to
   eat, cold soak with soak time, needs hot water) shown as badges on food
   cards; trips can be marked no-stove, which flags any assigned item that
-  needs hot water with a warning banner and a red card badge.
+  needs hot water with a warning banner and a red card badge. Items with no
+  prep method set are also flagged on no-stove trips ("prep? — verify")
+  until their prep is confirmed.
 - Water planning: optional daily drinking-water estimate per trip; each day
   shows combined water (meals + drinking) in liters with its carry weight,
   the trip totals include total water, and water-type waypoints are listed

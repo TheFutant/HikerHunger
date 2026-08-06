@@ -70,6 +70,11 @@ export function hotWaterItems(items: FoodItem[]): FoodItem[] {
   return items.filter((i) => i.prep === 'hot_water');
 }
 
+/** Items with no prep method set — worth verifying on a no-stove (cold soak) trip. */
+export function unverifiedPrepItems(items: FoodItem[]): FoodItem[] {
+  return items.filter((i) => i.prep === undefined);
+}
+
 export interface DayWaterPlan {
   mealMl: number;
   drinkingMl: number;
