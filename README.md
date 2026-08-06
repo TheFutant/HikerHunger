@@ -36,9 +36,28 @@ HikerHunger is a mobile-first web app for planning short backpacking trips with 
 - Food items and auto-calculation of:
   - total food weight
   - total calories
+  - calories per day (from trip start/end dates)
   - calories per ounce
+  - total protein, carbs, and fat
   - packaging waste
   - total meal water needed
+- Optional per-item macronutrients (protein/carbs/fat), auto-filled from
+  Open Food Facts when a barcode is scanned.
+- Per-day meal planning: assign food items to trip days (derived from
+  start/end dates) and view a day-by-day breakdown of calories, weight,
+  macros, and meal water.
+- Optional daily calorie target per trip, with each planned day colored
+  under/good/over against the target (<90% under, 90–115% good, >115% over).
+- Cold soak / no-stove planning: optional per-item prep method (ready to
+  eat, cold soak with soak time, needs hot water) shown as badges on food
+  cards; trips can be marked no-stove, which flags any assigned item that
+  needs hot water with a warning banner and a red card badge. Items with no
+  prep method set are also flagged on no-stove trips ("prep? — verify")
+  until their prep is confirmed.
+- Water planning: optional daily drinking-water estimate per trip; each day
+  shows combined water (meals + drinking) in liters with its carry weight,
+  the trip totals include total water, and water-type waypoints are listed
+  as refill sources on the Food/Water tab.
 - Mobile-first single-column layout with bottom tab navigation (Trips, Map, Food/Water, Settings).
 - Dark mode styling and online/offline indicator.
 
@@ -52,7 +71,7 @@ HikerHunger is a mobile-first web app for planning short backpacking trips with 
 ## Assumptions and defaults
 - GPX import reads up to the first two `<trk>` entries as Day 1 and Day 2 routes.
 - Waypoint type is defaulted to `camp` when imported from GPX unless later edited.
-- Offline behavior in MVP means local data operations continue offline after initial app load. Full PWA caching/service worker is intentionally not added yet.
+- The app is an installable PWA: `public/manifest.webmanifest` plus a service worker (`public/sw.js`) that precaches the app shell and caches same-origin static assets (stale-while-revalidate), so the app loads and works offline after the first visit. External requests (Open Food Facts, map tiles) are intentionally not cached. The service worker only registers in production builds.
 - Food item editing UI is intentionally minimal for MVP; users can add items and view calculated totals.
 
 ## Sample data

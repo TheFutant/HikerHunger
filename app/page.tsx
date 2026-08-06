@@ -2,11 +2,11 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { calculateFoodMetrics, calPerOz, calPerOzTier, GRAMS_PER_OUNCE } from '@/lib/calc';
+import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan, hotWaterItems, unverifiedPrepItems, GRAMS_PER_OUNCE, type FoodMetrics } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip, listFoodItems, upsertFoodItem, removeFoodItem } from '@/lib/db';
-import type { FoodItem, Trip, Waypoint, WaypointType } from '@/lib/types';
+import type { FoodItem, PrepMethod, Trip, Waypoint, WaypointType } from '@/lib/types';
 import { randomUUID } from '@/lib/uuid';
 import { fetchProductByBarcode } from '@/lib/openfoodfacts';
 
@@ -87,6 +87,36 @@ export default function HomePage() {
     [allFoodItems, selectedTripId],
   );
   const metrics = useMemo(() => calculateFoodMetrics(tripFoodItems), [tripFoodItems]);
+  const tripDayCount = useMemo(
+    () => (selectedTrip ? tripDays(selectedTrip.startDate, selectedTrip.endDate) : 0),
+    [selectedTrip],
+  );
+  const calPerDay = caloriesPerDay(metrics.totalCalories, tripDayCount);
+  const dayPlan = useMemo(() => {
+    if (tripDayCount <= 0) return [];
+    return Array.from({ length: tripDayCount }, (_, i) => {
+      const day = i + 1;
+      return { day, metrics: calculateFoodMetrics(tripFoodItems.filter((f) => f.day === day)) };
+    });
+  }, [tripFoodItems, tripDayCount]);
+  const unassignedMetrics = useMemo(
+    () => calculateFoodMetrics(tripFoodItems.filter((f) => !f.day || f.day > tripDayCount)),
+    [tripFoodItems, tripDayCount],
+  );
+  const foodDraftTrip = foodDraft?.tripId ? trips.find((t) => t.id === foodDraft.tripId) : undefined;
+  const foodDraftDays = foodDraftTrip ? tripDays(foodDraftTrip.startDate, foodDraftTrip.endDate) : 0;
+  const waterSources = useMemo(
+    () => selectedTrip?.waypoints.filter((w) => w.type === 'water') ?? [],
+    [selectedTrip],
+  );
+  const stoveConflicts = useMemo(
+    () => (selectedTrip?.noStove ? hotWaterItems(tripFoodItems) : []),
+    [selectedTrip, tripFoodItems],
+  );
+  const prepUnverified = useMemo(
+    () => (selectedTrip?.noStove ? unverifiedPrepItems(tripFoodItems) : []),
+    [selectedTrip, tripFoodItems],
+  );
 
   const availableCategories = useMemo(
     () => [...new Set(allFoodItems.map((f) => f.category).filter(Boolean))].sort(),
@@ -176,10 +206,9 @@ export default function HomePage() {
         return;
       }
       const weight_g = product.serving_size_g ?? 100;
-      const calories =
-        product.calories_per_100g !== null
-          ? Math.round((product.calories_per_100g * weight_g) / 100)
-          : 0;
+      const scale = (per100g: number | null) =>
+        per100g !== null ? Math.round((per100g * weight_g) / 100) : 0;
+      const calories = scale(product.calories_per_100g);
       const item: FoodItem = {
         id: randomUUID(),
         tripId: selectedTripId || undefined,
@@ -188,6 +217,9 @@ export default function HomePage() {
         quantity: 1,
         weight_g,
         calories,
+        protein_g: scale(product.protein_per_100g),
+        carbs_g: scale(product.carbs_per_100g),
+        fat_g: scale(product.fat_per_100g),
         packaging_weight_g: 10,
         water_ml_needed: 0,
         satisfaction_1_5: 3,
@@ -338,6 +370,44 @@ export default function HomePage() {
                 />
               </label>
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <label>
+                Daily calorie target
+                <input
+                  type="number"
+                  min={0}
+                  step={50}
+                  placeholder="e.g. 3000"
+                  className="mt-1 w-full"
+                  value={draft.dailyCalorieTarget ?? ''}
+                  onChange={(e) =>
+                    setDraft({ ...draft, dailyCalorieTarget: e.target.value ? Number(e.target.value) : undefined })
+                  }
+                />
+              </label>
+              <label>
+                Drinking water (ml/day)
+                <input
+                  type="number"
+                  min={0}
+                  step={250}
+                  placeholder="e.g. 3000"
+                  className="mt-1 w-full"
+                  value={draft.dailyDrinkingWaterMl ?? ''}
+                  onChange={(e) =>
+                    setDraft({ ...draft, dailyDrinkingWaterMl: e.target.value ? Number(e.target.value) : undefined })
+                  }
+                />
+              </label>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={draft.noStove ?? false}
+                onChange={(e) => setDraft({ ...draft, noStove: e.target.checked || undefined })}
+              />
+              No-stove trip (cold soak) — flag foods that need hot water
+            </label>
             <label>
               Notes
               <textarea
@@ -464,14 +534,81 @@ export default function HomePage() {
             <>
               <p className="text-xs font-medium text-zinc-400">
                 Trip totals — {trips.find(t => t.id === selectedTripId)?.name || 'Untitled trip'}
+                {tripDayCount > 0 && ` · ${tripDayCount} day${tripDayCount === 1 ? '' : 's'}`}
               </p>
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <Stat label="Food weight" value={`${metrics.totalFoodWeightG} g`} />
                 <Stat label="Calories" value={`${metrics.totalCalories}`} />
+                <Stat
+                  label="Cal/day"
+                  value={calPerDay !== null ? `${calPerDay}` : 'set dates'}
+                />
                 <Stat label="Cal/oz" value={`${metrics.caloriesPerOunce}`} />
+                <Stat label="Protein" value={`${metrics.totalProteinG} g`} />
+                <Stat label="Carbs" value={`${metrics.totalCarbsG} g`} />
+                <Stat label="Fat" value={`${metrics.totalFatG} g`} />
                 <Stat label="Packaging" value={`${metrics.packagingWasteG} g`} />
                 <Stat label="Meal water" value={`${metrics.totalMealWaterMl} ml`} />
+                {selectedTrip?.dailyDrinkingWaterMl !== undefined && tripDayCount > 0 && (
+                  <Stat
+                    label="Trip water"
+                    value={`${((metrics.totalMealWaterMl + selectedTrip.dailyDrinkingWaterMl * tripDayCount) / 1000).toFixed(1)} L`}
+                  />
+                )}
               </div>
+
+              {(stoveConflicts.length > 0 || prepUnverified.length > 0) && (
+                <div className="space-y-1 rounded-lg border border-amber-700 bg-amber-950 p-2 text-xs text-amber-200">
+                  {stoveConflicts.length > 0 && (
+                    <p>
+                      ⚠️ No-stove trip, but {stoveConflicts.length === 1 ? 'this item needs' : `${stoveConflicts.length} items need`} hot water:{' '}
+                      {stoveConflicts.map((i) => i.name).join(', ')}. Swap for cold-soakable options or mark their prep.
+                    </p>
+                  )}
+                  {prepUnverified.length > 0 && (
+                    <p>
+                      ❓ {prepUnverified.length === 1 ? '1 item has' : `${prepUnverified.length} items have`} no prep method set:{' '}
+                      {prepUnverified.map((i) => i.name).join(', ')}. Verify {prepUnverified.length === 1 ? 'it works' : 'they work'} without a stove.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {dayPlan.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-zinc-400">Day plan</p>
+                  {dayPlan.map(({ day, metrics: dm }) => (
+                    <DayRow
+                      key={day}
+                      label={`Day ${day}`}
+                      metrics={dm}
+                      target={selectedTrip?.dailyCalorieTarget}
+                      drinkingMl={selectedTrip?.dailyDrinkingWaterMl}
+                    />
+                  ))}
+                  {unassignedMetrics.totalCalories > 0 && (
+                    <DayRow label="Unassigned" metrics={unassignedMetrics} />
+                  )}
+                </div>
+              )}
+
+              {selectedTrip && (
+                <div className="space-y-1 rounded-lg border border-zinc-700 p-2 text-xs">
+                  <p className="font-semibold text-zinc-300">Water sources on route</p>
+                  {waterSources.length > 0 ? (
+                    waterSources.map((w) => (
+                      <p key={w.id} className="text-zinc-400">
+                        💧 {w.name} · {w.lat.toFixed(4)}, {w.lon.toFixed(4)}
+                        {w.notes ? ` — ${w.notes}` : ''}
+                      </p>
+                    ))
+                  ) : (
+                    <p className="text-zinc-500">
+                      None yet. Add waypoints of type “water” in Trips (or import a GPX) to plan refills instead of carrying a full day&apos;s water.
+                    </p>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -555,6 +692,21 @@ export default function HomePage() {
                       onChange={(e) => setFoodDraft({ ...foodDraft, calories: Number(e.target.value) })} />
                   </label>
                   <label>
+                    Protein (g)
+                    <input type="number" min={0} step="any" className="mt-1 w-full" value={foodDraft.protein_g ?? 0}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, protein_g: Number(e.target.value) })} />
+                  </label>
+                  <label>
+                    Carbs (g)
+                    <input type="number" min={0} step="any" className="mt-1 w-full" value={foodDraft.carbs_g ?? 0}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, carbs_g: Number(e.target.value) })} />
+                  </label>
+                  <label>
+                    Fat (g)
+                    <input type="number" min={0} step="any" className="mt-1 w-full" value={foodDraft.fat_g ?? 0}
+                      onChange={(e) => setFoodDraft({ ...foodDraft, fat_g: Number(e.target.value) })} />
+                  </label>
+                  <label>
                     Packaging (g)
                     <input type="number" min={0} className="mt-1 w-full" value={foodDraft.packaging_weight_g}
                       onChange={(e) => setFoodDraft({ ...foodDraft, packaging_weight_g: Number(e.target.value) })} />
@@ -564,14 +716,61 @@ export default function HomePage() {
                     <input type="number" min={0} className="mt-1 w-full" value={foodDraft.water_ml_needed}
                       onChange={(e) => setFoodDraft({ ...foodDraft, water_ml_needed: Number(e.target.value) })} />
                   </label>
+                  <label>
+                    Prep
+                    <select className="mt-1 w-full" value={foodDraft.prep ?? 'ready'}
+                      onChange={(e) => {
+                        const prep = e.target.value as PrepMethod;
+                        setFoodDraft({
+                          ...foodDraft,
+                          prep,
+                          soak_minutes: prep === 'cold_soak' ? foodDraft.soak_minutes : undefined,
+                        });
+                      }}>
+                      <option value="ready">Ready to eat</option>
+                      <option value="cold_soak">Cold soak</option>
+                      <option value="hot_water">Needs hot water</option>
+                    </select>
+                  </label>
+                  {foodDraft.prep === 'cold_soak' && (
+                    <label>
+                      Soak time (min)
+                      <input type="number" min={0} step={5} placeholder="e.g. 30" className="mt-1 w-full"
+                        value={foodDraft.soak_minutes ?? ''}
+                        onChange={(e) => setFoodDraft({ ...foodDraft, soak_minutes: e.target.value ? Number(e.target.value) : undefined })} />
+                    </label>
+                  )}
                   <label className="col-span-2">
                     Trip
                     <select className="mt-1 w-full" value={foodDraft.tripId ?? ''}
-                      onChange={(e) => setFoodDraft({ ...foodDraft, tripId: e.target.value || undefined })}>
+                      onChange={(e) => {
+                        const tripId = e.target.value || undefined;
+                        setFoodDraft({
+                          ...foodDraft,
+                          tripId,
+                          day: tripId === foodDraft.tripId ? foodDraft.day : undefined,
+                        });
+                      }}>
                       <option value="">— No trip —</option>
                       {trips.map((t) => <option key={t.id} value={t.id}>{t.name || 'Untitled trip'}</option>)}
                     </select>
                   </label>
+                  {foodDraft.tripId && (
+                    <label className="col-span-2">
+                      Day
+                      {foodDraftDays > 0 ? (
+                        <select className="mt-1 w-full" value={foodDraft.day ?? ''}
+                          onChange={(e) => setFoodDraft({ ...foodDraft, day: e.target.value ? Number(e.target.value) : undefined })}>
+                          <option value="">Unassigned</option>
+                          {Array.from({ length: foodDraftDays }, (_, i) => i + 1).map((d) => (
+                            <option key={d} value={d}>Day {d}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="mt-1 text-xs text-zinc-500">Set trip start/end dates to plan by day.</p>
+                      )}
+                    </label>
+                  )}
                 </div>
                 <label>
                   Notes
@@ -590,6 +789,8 @@ export default function HomePage() {
                 key={item.id}
                 item={item}
                 tripName={trips.find(t => t.id === item.tripId)?.name}
+                noStoveConflict={Boolean(item.prep === 'hot_water' && trips.find((t) => t.id === item.tripId)?.noStove)}
+                prepUnverified={Boolean(item.prep === undefined && trips.find((t) => t.id === item.tripId)?.noStove)}
                 onAddToTrip={selectedTripId && item.tripId !== selectedTripId ? async () => {
                   await upsertFoodItem({ ...item, tripId: selectedTripId });
                   await reloadFoodItems();
@@ -663,7 +864,7 @@ export default function HomePage() {
       )}
 
       <nav className="fixed inset-x-0 bottom-0 mx-auto grid w-full max-w-md grid-cols-4 border-t border-zinc-700 bg-zinc-900 p-2">
-        <TabButton label="Food" active={tab === 'food'} onClick={() => setTab('food')} />
+        <TabButton label="Food/Water" active={tab === 'food'} onClick={() => setTab('food')} />
         <TabButton label="Trips" active={tab === 'trips'} onClick={() => setTab('trips')} />
         <TabButton label="Map" active={tab === 'map'} onClick={() => setTab('map')} />
         <TabButton label="Settings" active={tab === 'settings'} onClick={() => setTab('settings')} />
@@ -678,9 +879,11 @@ const CPO_COLORS = {
   poor: 'bg-red-900 text-red-300',
 };
 
-function FoodCard({ item, tripName, onAddToTrip, onClick }: {
+function FoodCard({ item, tripName, noStoveConflict, prepUnverified, onAddToTrip, onClick }: {
   item: FoodItem;
   tripName?: string;
+  noStoveConflict?: boolean;
+  prepUnverified?: boolean;
   onAddToTrip?: () => void;
   onClick: () => void;
 }) {
@@ -688,6 +891,7 @@ function FoodCard({ item, tripName, onAddToTrip, onClick }: {
   const cpo = calPerOz(item.calories, item.weight_g);
   const tier = calPerOzTier(cpo);
   const oz = (item.weight_g / GRAMS_PER_OUNCE).toFixed(1);
+  const hasMacros = Boolean(item.protein_g || item.carbs_g || item.fat_g);
   return (
     <div className="rounded-lg border border-zinc-700">
       <button className="w-full p-3 text-left text-sm" onClick={onClick}>
@@ -711,7 +915,30 @@ function FoodCard({ item, tripName, onAddToTrip, onClick }: {
           {tripName && (
             <span className="rounded bg-indigo-900 px-1 text-indigo-300">{tripName}</span>
           )}
+          {item.day && (
+            <span className="rounded bg-zinc-800 px-1 text-zinc-300">Day {item.day}</span>
+          )}
+          {item.prep === 'cold_soak' && (
+            <span className="rounded bg-sky-900 px-1 text-sky-300">
+              🥄 soak{item.soak_minutes ? ` ${item.soak_minutes}m` : ''}
+            </span>
+          )}
+          {item.prep === 'hot_water' && (
+            <span className={`rounded px-1 ${noStoveConflict ? 'bg-red-900 font-semibold text-red-200' : 'bg-zinc-800 text-zinc-300'}`}>
+              🔥 hot water{noStoveConflict ? ' — no stove!' : ''}
+            </span>
+          )}
+          {prepUnverified && (
+            <span className="rounded bg-amber-900 px-1 text-amber-200">❓ prep? — verify</span>
+          )}
         </div>
+        {hasMacros && (
+          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-zinc-500">
+            <span>P {(item.protein_g ?? 0) * qty}g</span>
+            <span>C {(item.carbs_g ?? 0) * qty}g</span>
+            <span>F {(item.fat_g ?? 0) * qty}g</span>
+          </div>
+        )}
       </button>
       {onAddToTrip && (
         <button
@@ -721,6 +948,53 @@ function FoodCard({ item, tripName, onAddToTrip, onClick }: {
           + Add to trip
         </button>
       )}
+    </div>
+  );
+}
+
+const TARGET_COLORS = {
+  under: { text: 'text-amber-300', bar: 'bg-amber-600' },
+  good: { text: 'text-emerald-300', bar: 'bg-emerald-600' },
+  over: { text: 'text-red-300', bar: 'bg-red-700' },
+};
+
+function DayRow({ label, metrics, target, drinkingMl }: {
+  label: string;
+  metrics: FoodMetrics;
+  target?: number;
+  drinkingMl?: number;
+}) {
+  const tier = target ? calorieTargetTier(metrics.totalCalories, target) : null;
+  const pct = target ? Math.min(100, Math.round((metrics.totalCalories / target) * 100)) : null;
+  const colors = tier ? TARGET_COLORS[tier] : null;
+  const hasMacros = metrics.totalProteinG > 0 || metrics.totalCarbsG > 0 || metrics.totalFatG > 0;
+  const water = drinkingMl !== undefined ? dayWaterPlan(metrics.totalMealWaterMl, drinkingMl) : null;
+  return (
+    <div className="rounded-lg border border-zinc-700 p-2 text-xs">
+      <div className="flex items-center justify-between">
+        <span className="font-semibold">{label}</span>
+        <span className={colors ? colors.text : 'text-zinc-300'}>
+          {metrics.totalCalories} cal{target ? ` / ${target}` : ''}
+        </span>
+      </div>
+      {pct !== null && colors && (
+        <div className="mt-1 h-1.5 w-full overflow-hidden rounded bg-zinc-800">
+          <div className={`h-full ${colors.bar}`} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <div className="mt-1 flex flex-wrap gap-x-3 text-zinc-500">
+        <span>{metrics.totalFoodWeightG} g</span>
+        {hasMacros && (
+          <span>P {metrics.totalProteinG}g · C {metrics.totalCarbsG}g · F {metrics.totalFatG}g</span>
+        )}
+        {water ? (
+          <span>
+            💧 {water.totalLiters} L (meals {water.mealMl} + drink {water.drinkingMl} ml) · ≈{water.totalLiters} kg
+          </span>
+        ) : (
+          metrics.totalMealWaterMl > 0 && <span>💧 {metrics.totalMealWaterMl} ml</span>
+        )}
+      </div>
     </div>
   );
 }
