@@ -65,6 +65,20 @@ export function caloriesPerDay(totalCalories: number, days: number): number | nu
   return Math.round(totalCalories / days);
 }
 
+export interface DayWaterPlan {
+  mealMl: number;
+  drinkingMl: number;
+  totalMl: number;
+  /** Total rounded to 0.1 L; water weighs 1 kg/L, so this is also the carry weight in kg. */
+  totalLiters: number;
+}
+
+/** Combine a day's meal water with the trip's daily drinking-water estimate. */
+export function dayWaterPlan(mealMl: number, drinkingMl: number): DayWaterPlan {
+  const totalMl = mealMl + drinkingMl;
+  return { mealMl, drinkingMl, totalMl, totalLiters: Math.round(totalMl / 100) / 10 };
+}
+
 /**
  * How a day's planned calories compare to the daily target.
  * <90% = under, 90–115% = good, >115% = over.

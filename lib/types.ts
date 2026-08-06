@@ -57,6 +57,8 @@ export interface Trip {
   notes: string;
   /** Target calories per person per day; undefined = no target set. */
   dailyCalorieTarget?: number;
+  /** Estimated drinking water per person per day in ml (excludes meal water); undefined = not set. */
+  dailyDrinkingWaterMl?: number;
   routes: TripRoute[];
   waypoints: Waypoint[];
   foodItems: FoodItem[];

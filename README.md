@@ -48,6 +48,10 @@ HikerHunger is a mobile-first web app for planning short backpacking trips with 
   macros, and meal water.
 - Optional daily calorie target per trip, with each planned day colored
   under/good/over against the target (<90% under, 90–115% good, >115% over).
+- Water planning: optional daily drinking-water estimate per trip; each day
+  shows combined water (meals + drinking) in liters with its carry weight,
+  the trip totals include total water, and water-type waypoints are listed
+  as refill sources on the Food/Water tab.
 - Mobile-first single-column layout with bottom tab navigation (Trips, Map, Food/Water, Settings).
 - Dark mode styling and online/offline indicator.
 

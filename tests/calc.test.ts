@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateFoodMetrics, tripDays, caloriesPerDay, calorieTargetTier } from '@/lib/calc';
+import { calculateFoodMetrics, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan } from '@/lib/calc';
 import type { FoodItem } from '@/lib/types';
 
 const item = (overrides: Partial<FoodItem>): FoodItem => ({
@@ -79,6 +79,20 @@ describe('calorieTargetTier', () => {
 
   it('treats a non-positive target as always good', () => {
     expect(calorieTargetTier(2000, 0)).toBe('good');
+  });
+});
+
+describe('dayWaterPlan', () => {
+  it('combines meal and drinking water and rounds liters to 0.1', () => {
+    const plan = dayWaterPlan(650, 3000);
+    expect(plan.totalMl).toBe(3650);
+    expect(plan.totalLiters).toBe(3.7);
+    expect(plan.mealMl).toBe(650);
+    expect(plan.drinkingMl).toBe(3000);
+  });
+
+  it('handles zero inputs', () => {
+    expect(dayWaterPlan(0, 0)).toEqual({ mealMl: 0, drinkingMl: 0, totalMl: 0, totalLiters: 0 });
   });
 });
 

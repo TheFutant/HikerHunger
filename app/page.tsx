@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, calorieTargetTier, GRAMS_PER_OUNCE, type FoodMetrics } from '@/lib/calc';
+import { calculateFoodMetrics, calPerOz, calPerOzTier, tripDays, caloriesPerDay, calorieTargetTier, dayWaterPlan, GRAMS_PER_OUNCE, type FoodMetrics } from '@/lib/calc';
 import { importTripJson, exportTripJson } from '@/lib/json';
 import { parseGpx, tripToGpx } from '@/lib/gpx';
 import { listTrips, saveTrip, deleteTrip, listFoodItems, upsertFoodItem, removeFoodItem } from '@/lib/db';
@@ -105,6 +105,10 @@ export default function HomePage() {
   );
   const foodDraftTrip = foodDraft?.tripId ? trips.find((t) => t.id === foodDraft.tripId) : undefined;
   const foodDraftDays = foodDraftTrip ? tripDays(foodDraftTrip.startDate, foodDraftTrip.endDate) : 0;
+  const waterSources = useMemo(
+    () => selectedTrip?.waypoints.filter((w) => w.type === 'water') ?? [],
+    [selectedTrip],
+  );
 
   const availableCategories = useMemo(
     () => [...new Set(allFoodItems.map((f) => f.category).filter(Boolean))].sort(),
@@ -358,20 +362,36 @@ export default function HomePage() {
                 />
               </label>
             </div>
-            <label>
-              Daily calorie target
-              <input
-                type="number"
-                min={0}
-                step={50}
-                placeholder="e.g. 3000"
-                className="mt-1 w-full"
-                value={draft.dailyCalorieTarget ?? ''}
-                onChange={(e) =>
-                  setDraft({ ...draft, dailyCalorieTarget: e.target.value ? Number(e.target.value) : undefined })
-                }
-              />
-            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <label>
+                Daily calorie target
+                <input
+                  type="number"
+                  min={0}
+                  step={50}
+                  placeholder="e.g. 3000"
+                  className="mt-1 w-full"
+                  value={draft.dailyCalorieTarget ?? ''}
+                  onChange={(e) =>
+                    setDraft({ ...draft, dailyCalorieTarget: e.target.value ? Number(e.target.value) : undefined })
+                  }
+                />
+              </label>
+              <label>
+                Drinking water (ml/day)
+                <input
+                  type="number"
+                  min={0}
+                  step={250}
+                  placeholder="e.g. 3000"
+                  className="mt-1 w-full"
+                  value={draft.dailyDrinkingWaterMl ?? ''}
+                  onChange={(e) =>
+                    setDraft({ ...draft, dailyDrinkingWaterMl: e.target.value ? Number(e.target.value) : undefined })
+                  }
+                />
+              </label>
+            </div>
             <label>
               Notes
               <textarea
@@ -513,6 +533,12 @@ export default function HomePage() {
                 <Stat label="Fat" value={`${metrics.totalFatG} g`} />
                 <Stat label="Packaging" value={`${metrics.packagingWasteG} g`} />
                 <Stat label="Meal water" value={`${metrics.totalMealWaterMl} ml`} />
+                {selectedTrip?.dailyDrinkingWaterMl !== undefined && tripDayCount > 0 && (
+                  <Stat
+                    label="Trip water"
+                    value={`${((metrics.totalMealWaterMl + selectedTrip.dailyDrinkingWaterMl * tripDayCount) / 1000).toFixed(1)} L`}
+                  />
+                )}
               </div>
 
               {dayPlan.length > 0 && (
@@ -524,10 +550,29 @@ export default function HomePage() {
                       label={`Day ${day}`}
                       metrics={dm}
                       target={selectedTrip?.dailyCalorieTarget}
+                      drinkingMl={selectedTrip?.dailyDrinkingWaterMl}
                     />
                   ))}
                   {unassignedMetrics.totalCalories > 0 && (
                     <DayRow label="Unassigned" metrics={unassignedMetrics} />
+                  )}
+                </div>
+              )}
+
+              {selectedTrip && (
+                <div className="space-y-1 rounded-lg border border-zinc-700 p-2 text-xs">
+                  <p className="font-semibold text-zinc-300">Water sources on route</p>
+                  {waterSources.length > 0 ? (
+                    waterSources.map((w) => (
+                      <p key={w.id} className="text-zinc-400">
+                        💧 {w.name} · {w.lat.toFixed(4)}, {w.lon.toFixed(4)}
+                        {w.notes ? ` — ${w.notes}` : ''}
+                      </p>
+                    ))
+                  ) : (
+                    <p className="text-zinc-500">
+                      None yet. Add waypoints of type “water” in Trips (or import a GPX) to plan refills instead of carrying a full day&apos;s water.
+                    </p>
                   )}
                 </div>
               )}
@@ -760,7 +805,7 @@ export default function HomePage() {
       )}
 
       <nav className="fixed inset-x-0 bottom-0 mx-auto grid w-full max-w-md grid-cols-4 border-t border-zinc-700 bg-zinc-900 p-2">
-        <TabButton label="Food" active={tab === 'food'} onClick={() => setTab('food')} />
+        <TabButton label="Food/Water" active={tab === 'food'} onClick={() => setTab('food')} />
         <TabButton label="Trips" active={tab === 'trips'} onClick={() => setTab('trips')} />
         <TabButton label="Map" active={tab === 'map'} onClick={() => setTab('map')} />
         <TabButton label="Settings" active={tab === 'settings'} onClick={() => setTab('settings')} />
@@ -839,11 +884,17 @@ const TARGET_COLORS = {
   over: { text: 'text-red-300', bar: 'bg-red-700' },
 };
 
-function DayRow({ label, metrics, target }: { label: string; metrics: FoodMetrics; target?: number }) {
+function DayRow({ label, metrics, target, drinkingMl }: {
+  label: string;
+  metrics: FoodMetrics;
+  target?: number;
+  drinkingMl?: number;
+}) {
   const tier = target ? calorieTargetTier(metrics.totalCalories, target) : null;
   const pct = target ? Math.min(100, Math.round((metrics.totalCalories / target) * 100)) : null;
   const colors = tier ? TARGET_COLORS[tier] : null;
   const hasMacros = metrics.totalProteinG > 0 || metrics.totalCarbsG > 0 || metrics.totalFatG > 0;
+  const water = drinkingMl !== undefined ? dayWaterPlan(metrics.totalMealWaterMl, drinkingMl) : null;
   return (
     <div className="rounded-lg border border-zinc-700 p-2 text-xs">
       <div className="flex items-center justify-between">
@@ -862,7 +913,13 @@ function DayRow({ label, metrics, target }: { label: string; metrics: FoodMetric
         {hasMacros && (
           <span>P {metrics.totalProteinG}g · C {metrics.totalCarbsG}g · F {metrics.totalFatG}g</span>
         )}
-        {metrics.totalMealWaterMl > 0 && <span>💧 {metrics.totalMealWaterMl} ml</span>}
+        {water ? (
+          <span>
+            💧 {water.totalLiters} L (meals {water.mealMl} + drink {water.drinkingMl} ml) · ≈{water.totalLiters} kg
+          </span>
+        ) : (
+          metrics.totalMealWaterMl > 0 && <span>💧 {metrics.totalMealWaterMl} ml</span>
+        )}
       </div>
     </div>
   );
