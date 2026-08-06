@@ -61,7 +61,7 @@ HikerHunger is a mobile-first web app for planning short backpacking trips with 
 ## Assumptions and defaults
 - GPX import reads up to the first two `<trk>` entries as Day 1 and Day 2 routes.
 - Waypoint type is defaulted to `camp` when imported from GPX unless later edited.
-- Offline behavior in MVP means local data operations continue offline after initial app load. Full PWA caching/service worker is intentionally not added yet.
+- The app is an installable PWA: `public/manifest.webmanifest` plus a service worker (`public/sw.js`) that precaches the app shell and caches same-origin static assets (stale-while-revalidate), so the app loads and works offline after the first visit. External requests (Open Food Facts, map tiles) are intentionally not cached. The service worker only registers in production builds.
 - Food item editing UI is intentionally minimal for MVP; users can add items and view calculated totals.
 
 ## Sample data
